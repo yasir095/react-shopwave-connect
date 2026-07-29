@@ -1,0 +1,69 @@
+import { apiGet, getApiErrors, type RequestOptions } from "./request";
+import type { apiResponse } from "./types";
+
+/** Promotion rule identifiers as stored by the Shopwave API. */
+export enum PromotionRuleSet {
+  Percentage = "|%^/",
+  Combo = "&%</",
+  MealDeal = "&=^/",
+}
+
+export interface Promotion {
+  id: number;
+  merchantId: number;
+  storeIds: number[];
+  categoryIds: { [key: string]: number };
+  productIds: { [key: string]: any };
+  title: string;
+  details: string | null;
+  terms: string | null;
+  startDate: string;
+  endDate: string;
+  daysAvailable: number[];
+  automatic: number;
+  rule: PromotionRuleSet;
+  x: number;
+  y: number | null;
+}
+
+export interface PromotionResponse {
+  promotions: {
+    [key: number]: Promotion;
+  };
+  api: apiResponse;
+}
+
+export interface FetchPromotionsParams {
+  /** Optional id filter. Forwarded when provided. */
+  promotionIds?: Array<number>;
+  /** Whether to include soft-deleted records. Defaults to `false`. */
+  deleted?: boolean;
+  /** Token override (also accepted via `options.token`). */
+  token?: string;
+}
+
+/**
+ * Fetches promotions. Returns the flattened `Promotion[]`.
+ */
+export async function fetchPromotions(
+  params: FetchPromotionsParams = {},
+  options: RequestOptions = {}
+): Promise<Promotion[]> {
+  const extras: Record<string, unknown> = { deleted: params.deleted ?? false };
+
+  if (params.promotionIds) {
+    extras.promotionIds = params.promotionIds;
+  }
+  if (params.token) {
+    extras.token = params.token;
+  }
+
+  const json = await apiGet<PromotionResponse>("/api/promotions", extras, options);
+
+  const error = getApiErrors(json.api);
+  if (error) {
+    throw new Error(error);
+  }
+
+  return Object.values(json.promotions ?? {});
+}
