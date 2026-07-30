@@ -1,4 +1,4 @@
-# @shopwave/sdk
+# react-shopwave-connect
 
 Shopwave API client split into two clearly separated layers:
 
@@ -16,7 +16,7 @@ src/
 ## Install
 
 ```bash
-npm install @shopwave/sdk
+npm install react-shopwave-connect
 # React is only needed if you use the hooks layer:
 npm install react react-dom
 ```
@@ -25,9 +25,9 @@ npm install react react-dom
 
 | Import                               | What you get                                  |
 | ------------------------------------ | --------------------------------------------- |
-| `@shopwave/sdk/core`         | Framework-agnostic functions + types only     |
-| `@shopwave/sdk/hooks`        | React hooks only                              |
-| `@shopwave/sdk`              | Both (re-exports `core` + `hooks`)            |
+| `react-shopwave-connect/core`         | Framework-agnostic functions + types only     |
+| `react-shopwave-connect/hooks`        | React hooks only                              |
+| `react-shopwave-connect`              | Both (re-exports `core` + `hooks`)            |
 
 Prefer the subpath imports when you want a hard boundary — e.g. a Node service should import from `/core` so React never enters the dependency graph.
 
@@ -59,7 +59,7 @@ import {
   fetchStores,
   fetchReport,
   type Product,
-} from "@shopwave/sdk/core";
+} from "react-shopwave-connect/core";
 
 const options = {
   baseUrl: "https://api.shopwave.example",
@@ -89,7 +89,7 @@ main().catch(console.error);
 On Node < 18 (no global `fetch`), inject one:
 
 ```ts
-import { fetchStores } from "@shopwave/sdk/core";
+import { fetchStores } from "react-shopwave-connect/core";
 import fetch from "node-fetch";
 
 await fetchStores({}, { baseUrl: "https://api.merchantstack.com", fetch });
@@ -125,7 +125,7 @@ Every auto-fetching hook returns the same shape:
 
 ```tsx
 "use client";
-import { useProduct, useStore } from "@shopwave/sdk/hooks";
+import { useProduct, useStore } from "react-shopwave-connect/hooks";
 
 export function ProductList({ storeId }: { storeId: number }) {
   const { data: products, loading, error, refetch } = useProduct({ storeId });
@@ -158,7 +158,7 @@ They fetch on mount and re-run when their arguments change. `useConsumer` and `u
 `useDelete`, `useSubmit`, `useLogout` return `{ mutate, data, loading, error }` — nothing fires until you call `mutate`:
 
 ```tsx
-import { useDelete, useSubmit } from "@shopwave/sdk/hooks";
+import { useDelete, useSubmit } from "react-shopwave-connect/hooks";
 
 const { mutate: remove, loading } = useDelete();
 await remove("products", productId);
@@ -189,7 +189,7 @@ The original `useLogin` / `useLogout` were tightly coupled to Next.js (`next/nav
 ```tsx
 "use client";
 import { useRouter } from "next/navigation";
-import { useLogout } from "@shopwave/sdk/hooks";
+import { useLogout } from "react-shopwave-connect/hooks";
 import { getLogoutUrl } from "@/app/actions";
 
 export function LogoutButton() {

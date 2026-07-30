@@ -1,5 +1,5 @@
 {
-  "name": "@shopwave/sdk",
+  "name": "react-shopwave-connect",
   "version": "0.1.1",
   "description": "Shopwave API client with a framework-agnostic core layer and a thin React hooks layer.",
   "author": "Yasir",

@@ -1,0 +1,104 @@
+# .npmignore
+# ===========
+# This file is currently INACTIVE because package.json has a "files" field.
+# The "files" field takes precedence and uses a WHITELIST approach (only publish what's listed).
+# Current setting: "files": ["dist"] means ONLY the dist/ folder is published.
+#
+# To use .npmignore instead, remove the "files" field from package.json.
+# .npmignore uses a BLACKLIST approach (publish everything EXCEPT what's listed here).
+
+# ============================================================================
+# PUBLISHING INSTRUCTIONS
+# ============================================================================
+#
+# 1. Login to npm (one-time setup):
+#    npm login
+#
+# 2. Verify you're logged in:
+#    npm whoami
+#
+# 3. Test what will be published (dry-run):
+#    npm publish --dry-run
+#
+# 4. Publish to npm registry:
+#    npm publish
+#
+# 5. Verify the package was published:
+#    https://www.npmjs.com/package/react-shopwave-connect
+#
+# 6. For future updates:
+#    npm version patch   # 0.1.1 -> 0.1.2 (bug fixes)
+#    npm version minor   # 0.1.1 -> 0.2.0 (new features, backwards compatible)
+#    npm version major   # 0.1.1 -> 1.0.0 (breaking changes)
+#    npm publish
+#
+# ============================================================================
+
+# Source files (not needed in published package)
+src/
+*.ts
+*.tsx
+!*.d.ts
+tsconfig.json
+tsconfig.*.json
+tsdown.config.ts
+
+# Build configuration
+.tsdown/
+*.tsbuildinfo
+
+# Tests
+tests/
+test/
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+vitest.config.ts
+coverage/
+
+# Development files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+circle.yml
+
+# Dependencies
+node_modules/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation (optional - keep README.md, LICENSE)
+docs/
+*.md
+!README.md
+
+# Misc
+.cache/
+.npm/
+.eslintcache
+*.tgz
