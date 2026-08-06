@@ -38,6 +38,12 @@ export interface FetchPromotionsParams {
   promotionIds?: Array<number>;
   /** Whether to include soft-deleted records. Defaults to `false`. */
   deleted?: boolean;
+  /** Filter for imminent promotions. */
+  imminent?: boolean;
+  /** Filter for active promotions. */
+  active?: boolean;
+  /** Filter for expired promotions. */
+  expired?: boolean;
   /** Token override (also accepted via `options.token`). */
   token?: string;
 }
@@ -53,6 +59,15 @@ export async function fetchPromotions(
 
   if (params.promotionIds) {
     extras.promotionIds = params.promotionIds;
+  }
+  if (params.imminent !== undefined) {
+    extras.imminent = params.imminent;
+  }
+  if (params.active !== undefined) {
+    extras.active = params.active;
+  }
+  if (params.expired !== undefined) {
+    extras.expired = params.expired;
   }
   if (params.token) {
     extras.token = params.token;
