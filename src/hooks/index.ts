@@ -18,4 +18,5 @@ export { useReport } from "./useReport";
 export { useDelete } from "./useDelete";
 export { useSubmit } from "./useSubmit";
 export { useLogout } from "./useLogout";
+export { useSession } from "./useSession";
 export { useBasketReport, type UseBasketReportReturn } from "./useBasketReport";

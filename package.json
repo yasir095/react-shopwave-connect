@@ -1,7 +1,7 @@
 {
   "name": "react-shopwave-connect",
   "version": "0.1.2",
-  "description": "Shopwave API client with a framework-agnostic core layer and a thin React hooks layer.",
+  "description": "Shopwave API client: framework-agnostic core, React hooks, and server-side OAuth (with a Next.js adapter).",
   "author": "Yasir",
   "license": "MIT",
   "type": "module",
@@ -39,6 +39,26 @@
         "types": "./dist/hooks/index.d.cts",
         "default": "./dist/hooks/index.cjs"
       }
+    },
+    "./server": {
+      "import": {
+        "types": "./dist/server/index.d.ts",
+        "default": "./dist/server/index.js"
+      },
+      "require": {
+        "types": "./dist/server/index.d.cts",
+        "default": "./dist/server/index.cjs"
+      }
+    },
+    "./next": {
+      "import": {
+        "types": "./dist/next/index.d.ts",
+        "default": "./dist/next/index.js"
+      },
+      "require": {
+        "types": "./dist/next/index.d.cts",
+        "default": "./dist/next/index.cjs"
+      }
     }
   },
   "files": [
@@ -51,12 +71,15 @@
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build",
-    "test": "vitest run",
-    "test:integration": "vitest run --config vitest.config.ts"
+    "test": "vitest run --config vitest.unit.config.ts",
+    "test:integration": "vitest run --config vitest.config.ts",
+    "test:unit": "vitest run --config vitest.unit.config.ts"
   },
   "peerDependencies": {
     "react": ">=17.0.0",
-    "react-dom": ">=17.0.0"
+    "react-dom": ">=17.0.0",
+    "next": ">=14.0.0",
+    "iron-session": ">=8.0.0 <10"
   },
   "peerDependenciesMeta": {
     "react": {
@@ -64,11 +87,19 @@
     },
     "react-dom": {
       "optional": true
+    },
+    "next": {
+      "optional": true
+    },
+    "iron-session": {
+      "optional": true
     }
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
+    "iron-session": "^8.0.4",
+    "next": "^16.3.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tsdown": "^0.15.6",
@@ -76,10 +107,12 @@
     "vitest": "^3.1.0"
   },
   "keywords": [
-    "shopwave",
-    "react",
-    "hooks",
     "api",
+    "hooks",
+    "nextjs",
+    "oauth",
+    "react",
+    "shopwave",
     "typescript"
   ]
 }
