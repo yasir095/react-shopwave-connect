@@ -28,6 +28,8 @@ npm install react react-dom
 | `react-shopwave-connect/core`         | Framework-agnostic functions + types only     |
 | `react-shopwave-connect/hooks`        | React hooks only                              |
 | `react-shopwave-connect`              | Both (re-exports `core` + `hooks`)            |
+| `react-shopwave-connect/server`       | **Server-only.** Framework-agnostic Shopwave OAuth client + token helpers |
+| `react-shopwave-connect/next`         | **Server-only.** Next.js login/callback/logout/session route handlers, token refresh, proxy guard |
 
 Prefer the subpath imports when you want a hard boundary — e.g. a Node service should import from `/core` so React never enters the dependency graph.
 
@@ -107,7 +109,7 @@ Functions **throw** on network failure or API errors (the error message contains
 | product   | `fetchProducts`, `fetchProductsMap` (batched, keyed)    |
 | store     | `fetchStores`                                           |
 | report    | `fetchReport`                                           |
-| session   | `logout`                                                |
+| session   | `fetchSession`, `loginPath`, `logoutPath`, `logout`     |
 | entity    | `deleteEntity`, `submitEntity`                          |
 | basket    | `buildBasketReportQuery`, `parseBasketReportData`, `combineBasketRows`, `computeBasketSummary`, … (pure transforms) |
 
@@ -150,7 +152,7 @@ const { data } = useProduct({ storeId }, { baseUrl: "https://api.merchantstack.c
 
 ### Auto-fetch hooks (`useEffect`-based)
 
-`useCategory`, `useConsumer`, `useEmployee`, `useProduct`, `useStore`, `useReport`.
+`useCategory`, `useConsumer`, `useEmployee`, `useProduct`, `usePromotion`, `useStore`, `useReport`, `useSession`.
 They fetch on mount and re-run when their arguments change. `useConsumer` and `useReport` stay idle until you pass ids / a query (they return `loading: false`, `data: null` until then). `refetch()` replaces the old `reloadFlag` argument.
 
 ### Manually-triggered hooks (`useCallback`-based)
@@ -179,37 +181,144 @@ const saved = await save({
 
 ---
 
-## Auth & Next.js note
+## 3. Authentication (Shopwave OAuth)
 
-The original `useLogin` / `useLogout` were tightly coupled to Next.js (`next/navigation` router + `'use server'` actions) and **cannot** be framework-agnostic, so they are **not** shipped here. Instead:
+Login is the same for every Shopwave app; only the **config** differs (client id/secret, redirect URL, session secret). The Shopwave auth server uses the authorization-code flow **with a client secret** (no PKCE), so the exchange must happen on a server — the browser only follows redirects and never sees a token.
 
-- `core.logout()` / `useLogout()` end the server session (`DELETE /api/session?action=logout`) — no redirect.
-- The redirect to the auth server's login/logout URL stays in your app, since it depends on your server actions and router:
+```
+browser ──/auth?returnTo=/products──▶ your app ──302──▶ {authServer}/login?…&state=…
+        ◀──────────── user signs in on Shopwave ─────────────┘
+browser ──/auth?code=…&state=…──▶ your app ──POST /oauth/token (secret)──▶ auth server
+        ◀──302 /products + encrypted httpOnly cookie (tokens stay server-side)
+```
+
+What the SDK handles for you:
+
+- `state` check (login-CSRF protection) and a safe `returnTo` (same-origin paths only).
+- One callback URL per app: `returnTo` rides along in the session, so tools/sub-sections don't need their own redirect URIs.
+- Tokens stored as `{ accessToken, refreshToken, tokenType, expiresAt }` in an **iron-session** cookie (httpOnly, SameSite=Lax, Secure in production).
+- Refresh when the access token has expired (Shopwave issues a new one only after expiry; the refresh token is not rotated), de-duplicated across concurrent requests. A rejected refresh token logs the user out.
+- `GET /api/session` returns `{ loggedIn, expiresAt }` — **never tokens**.
+- Sessions written by older apps (raw `{ access_token, refresh_token, … }` in `session.token`) keep working.
+
+### Next.js (App Router) setup
+
+Install the peer dependencies once: `npm install react-shopwave-connect iron-session`.
+
+**1. One config file per app**
+
+```ts
+// lib/auth.ts
+import { createShopwaveAuth } from "react-shopwave-connect/next";
+
+export const auth = createShopwaveAuth({
+  authServerUrl: process.env.SHOPWAVE_AUTH_SERVER_URL!, // e.g. https://secure.merchantstack.com
+  clientId:      process.env.SHOPWAVE_CLIENT_ID!,
+  clientSecret:  process.env.SHOPWAVE_CLIENT_SECRET!,
+  redirectUri:   process.env.SHOPWAVE_REDIRECT_URL!,    // e.g. https://admin.example.com/auth (registered on the auth server)
+  session: {
+    password:   process.env.SESSION_SECRET!,            // ≥ 32 random chars
+    cookieName: "shopwave_session_cookie",              // keep your existing name to keep users logged in
+  },
+  // authPath: "/auth", logoutPath: "/auth/logout", sessionPath: "/api/session",
+  // defaultReturnTo: "/", requireState: true, refreshSkewSeconds: 0,
+});
+```
+
+Config is validated on first use, so a missing env var doesn't break `next build`.
+
+**2. Three route files**
+
+```ts
+// app/auth/route.ts          — the redirect-URI path: starts login AND receives the callback
+import { auth } from "@/lib/auth";
+export const GET = auth.handlers.auth;
+
+// app/auth/logout/route.ts   — clears the session, then logs out of the auth server
+import { auth } from "@/lib/auth";
+export const GET = auth.handlers.logout;
+
+// app/api/session/route.ts   — { loggedIn, expiresAt } for the browser; DELETE ends the session
+import { auth } from "@/lib/auth";
+export const { GET, DELETE } = auth.handlers.session;
+```
+
+**3. Protect pages and APIs** (`proxy.ts` in Next 16, `middleware.ts` before that)
+
+```ts
+import { NextResponse, type NextRequest } from "next/server";
+import { auth } from "@/lib/auth";
+
+export async function proxy(request: NextRequest) {
+  return (await auth.protect(request, { publicPaths: ["/tools/tag-joiner"] })) ?? NextResponse.next();
+}
+
+export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"] };
+```
+
+Logged-out page requests are redirected to `/auth?returnTo=<page>`; paths under `/api` get a `401` JSON instead. The auth, logout and session paths are always public. `protect` only reads the cookie — it never calls the auth server.
+
+**4. Use the token in route handlers**
+
+```ts
+import { auth } from "@/lib/auth";
+import { isExpiredTokenResponse } from "react-shopwave-connect/next";
+
+export const GET = auth.withAuth(async (request, context, { authorization }) => {
+  const call = (header: string) =>
+    fetch(`${process.env.SHOPWAVE_API_SERVER_URL}/product`, {
+      headers: { Authorization: header, "x-accept-version": "2.0" },
+    });
+
+  let res = await call(authorization);
+  let body = await res.json();
+
+  // Clock said valid but the API says expired (HTTP 401 / API error 908): refresh once and retry.
+  if (isExpiredTokenResponse(res.status, body)) {
+    const fresh = await auth.getAuthorizationHeader({ forceRefresh: true });
+    if (!fresh) return Response.json({ error: "unauthorized" }, { status: 401 });
+    res = await call(fresh);
+    body = await res.json();
+  }
+  return Response.json(body, { status: res.status });
+});
+```
+
+Also available: `auth.getAccessToken()`, `auth.getAuthorizationHeader()`, `auth.getToken()`, `auth.getStatus()`, `auth.loginPath(returnTo)`, `auth.logoutPath`, `auth.isAuthenticated(request)`. Refreshed tokens are saved automatically from route handlers, server actions and proxy (Server Components can read tokens but can't write cookies).
+
+**5. In the browser**
 
 ```tsx
 "use client";
-import { useRouter } from "next/navigation";
-import { useLogout } from "react-shopwave-connect/hooks";
-import { getLogoutUrl } from "@/app/actions";
+import { useSession, loginPath, logoutPath } from "react-shopwave-connect";
 
-export function LogoutButton() {
-  const router = useRouter();
-  const { mutate: endSession } = useLogout();
-
-  const onClick = async () => {
-    await endSession();
-    router.push(await getLogoutUrl(window.location.origin + "/auth"));
-  };
-
-  return <button onClick={onClick}>Log out</button>;
+export function AccountButton() {
+  const { data: session, loading } = useSession();
+  if (loading) return null;
+  return session?.loggedIn
+    ? <a href={logoutPath()}>Log out</a>
+    : <a href={loginPath(window.location.pathname)}>Log in</a>;
 }
 ```
+
+Use plain links / `window.location` for login and logout — they are full-page redirects to the auth server, not client-side navigations.
+
+### Other frameworks
+
+`react-shopwave-connect/server` has the same building blocks without Next.js: `createShopwaveOAuth(config)` → `buildLoginUrl({ state })`, `exchangeCode(code)`, `refreshToken(token)`, `buildLogoutUrl()`, plus `createState`, `sanitizeReturnTo`, `isTokenExpired`, `isExpiredTokenResponse` and `authorizationHeader`. Store the token in your framework's session (Express `express-session`, iron-session's `getIronSession(req, res)`, …).
+
+### Moving an existing app over
+
+- Keep `redirectUri` equal to the URL already registered on the auth server (AdminUI: `…/auth`) and mount `handlers.auth` at that path.
+- Keep `cookieName` the same and use the same `SESSION_SECRET` value as the old iron-session password — current users stay logged in; their old token shape is read and upgraded on the next refresh.
+- Per-tool auth routes can go: link to `auth.loginPath("/tools/where-to-next")` instead.
+- `core.logout()` / `useLogout()` still work (`DELETE /api/session`), but prefer linking to `logoutPath()` so the auth-server session ends too.
 
 ---
 
 ## Build
 
-Built with [`tsdown`](https://tsdown.dev) into dual ESM + CJS with `.d.ts` types, via two separate entries (`core` with no externals, `hooks` with `react`/`react-dom` marked external so they're never bundled).
+Built with [`tsdown`](https://tsdown.dev) into dual ESM + CJS with `.d.ts` types, via separate entries: `core` (no externals), `hooks` (`react`/`react-dom` external), `server` (no externals) and `next` (`next`/`iron-session` external — optional peer dependencies). `server` and `next` are never re-exported from the root entry, so they can't end up in client bundles.
 
 ```bash
 npm run build       # emit dist/
@@ -219,6 +328,12 @@ npm run typecheck   # tsc --noEmit
 ---
 
 ## Testing
+
+Unit tests (offline, no credentials) cover the OAuth client, token handling, the Next.js handlers (with an in-memory cookie store) and the session client:
+
+```bash
+npm test            # = npm run test:unit
+```
 
 Integration tests run against a live API using [Vitest](https://vitest.dev). Tests are located in `tests/integration/` and cover full CRUD lifecycles for Products, Categories, Consumers, and Employees.
 
@@ -239,7 +354,7 @@ export API_TOKEN=your-staging-token
 # Run all integration tests
 npm run test:integration
 
-# Run tests in watch mode
+# Run unit tests
 npm test
 ```
 
@@ -247,6 +362,10 @@ npm test
 
 ```
 tests/
+  unit/
+    server.test.ts                 # OAuth client, tokens, returnTo/state
+    next.test.ts                   # Next.js handlers, refresh, proxy guard
+    session-client.test.ts         # fetchSession / loginPath / logoutPath
   integration/
     setup.ts                       # Shared config and helpers
     products.integration.test.ts   # Products CRUD lifecycle

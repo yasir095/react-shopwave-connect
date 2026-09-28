@@ -10,6 +10,12 @@ import { defineConfig } from "tsdown";
  *
  * The root entry (`.`) re-exports both layers and, because it includes the
  * hooks, also treats React as external.
+ *
+ * Server-only entries (never re-exported from the root, so they can't leak
+ * into client bundles):
+ *  - `server` : framework-agnostic OAuth client + token helpers.
+ *  - `next`   : Next.js route handlers / session / proxy guard. `next` and
+ *               `iron-session` are peer dependencies and stay external.
  */
 export default defineConfig([
   {
@@ -38,5 +44,22 @@ export default defineConfig([
     clean: true,
     sourcemap: true,
     external: ["react", "react-dom"],
+  },
+  {
+    entry: { index: "src/server/index.ts" },
+    outDir: "dist/server",
+    format: ["esm", "cjs"],
+    dts: true,
+    clean: true,
+    sourcemap: true,
+  },
+  {
+    entry: { index: "src/next/index.ts" },
+    outDir: "dist/next",
+    format: ["esm", "cjs"],
+    dts: true,
+    clean: true,
+    sourcemap: true,
+    external: [/^next(\/.*)?$/, "iron-session", "react", "react-dom"],
   },
 ]);
