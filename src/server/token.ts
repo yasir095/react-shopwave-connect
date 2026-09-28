@@ -117,8 +117,10 @@ export function authorizationHeader(token: ShopwaveToken): string {
  */
 export function isExpiredTokenResponse(status: number, body?: unknown): boolean {
   if (status === 401) return true;
-  const errors = (body as { api?: { message?: { errors?: Record<string, { id?: number }> } } })
-    ?.api?.message?.errors;
+  // `errors` in responses seen so far; the API reference calls it `error`.
+  const message = (body as { api?: { message?: { errors?: Record<string, { id?: number }>; error?: Record<string, { id?: number }> } } })
+    ?.api?.message;
+  const errors = message?.errors ?? message?.error;
   if (!errors || typeof errors !== "object") return false;
   return Object.entries(errors).some(
     ([key, value]) =>

@@ -1,4 +1,5 @@
-import { apiGet, getApiErrors, type RequestOptions } from "./request";
+import { apiGet, type RequestOptions } from "./request";
+import { assertNoApiErrors } from "./errors";
 import type { apiResponse } from "./types";
 
 export interface Consumer {
@@ -30,12 +31,10 @@ export async function fetchConsumers(
 
   const extras: Record<string, unknown> = { ids: consumerIds.join(",") };
 
-  const json = await apiGet<ConsumerResponse>("/api/consumer", extras, options);
+  const json = await apiGet<ConsumerResponse | null>("/api/consumer", extras, options);
 
-  const error = getApiErrors(json.api);
-  if (error) {
-    throw new Error(error);
-  }
+  assertNoApiErrors(json, 200);
 
-  return Object.values(json.consumers ?? {});
+  // Shopwave answers an empty body when nothing matches.
+  return Object.values(json?.consumers ?? {});
 }

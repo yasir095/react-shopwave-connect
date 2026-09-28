@@ -26,3 +26,25 @@ export { sanitizeReturnTo, createState, safeEqual } from "./returnTo";
 
 export { ShopwaveAuthError } from "./errors";
 export type { ShopwaveAuthErrorCode } from "./errors";
+
+export {
+  createShopwaveApiHandlers,
+  readRequestToken,
+  parseExtras,
+  normalizeWriteBody,
+  RequestBodyError,
+  BLOCKED_EXTRAS,
+  shopwaveDateTime,
+} from "./api";
+export type {
+  ShopwaveApiConfig,
+  ShopwaveApiHandlers,
+  ForwardInit,
+  RouteContext,
+  RouteHandler,
+  CollectionHandlers,
+  ItemHandlers,
+} from "./api";
+
+export { SHOPWAVE_ENTITIES } from "../core/entities";
+export type { EntityDefinition, EntityKind, WritableEntityKind, DeletableEntityKind } from "../core/entities";

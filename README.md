@@ -4,6 +4,12 @@ Shopwave API client split into two clearly separated layers:
 
 - **`core`** — framework-agnostic async API functions + all TypeScript types. No React anywhere. Works in any TS/JS project (Node script, Vue, Angular, CLI, …).
 - **`hooks`** — thin React wrappers around `core`, with a consistent `{ data, loading, error, refetch }` shape. React is a **peer dependency** and is never bundled.
+- **`server` / `next`** — the other half of the contract: OAuth login and the `/api/*` route handlers that `core` calls, so an app's API routes are one line each.
+
+```
+browser / Node ──core──▶ your app's /api/<route> ──next route handlers──▶ Shopwave API
+                         (session cookie or Authorization: OAuth <token>)
+```
 
 ```
 src/
@@ -29,7 +35,7 @@ npm install react react-dom
 | `react-shopwave-connect/hooks`        | React hooks only                              |
 | `react-shopwave-connect`              | Both (re-exports `core` + `hooks`)            |
 | `react-shopwave-connect/server`       | **Server-only.** Framework-agnostic Shopwave OAuth client + token helpers |
-| `react-shopwave-connect/next`         | **Server-only.** Next.js login/callback/logout/session route handlers, token refresh, proxy guard |
+| `react-shopwave-connect/next`         | **Server-only.** Next.js login/callback/logout/session handlers, token refresh, proxy guard, and the `/api/*` route handlers (`createShopwaveApi`) |
 
 Prefer the subpath imports when you want a hard boundary — e.g. a Node service should import from `/core` so React never enters the dependency graph.
 
@@ -41,13 +47,18 @@ Every `core` function (and every hook) accepts an optional `options` argument:
 interface RequestOptions {
   baseUrl?: string;        // prefix for every path; omit in the browser to use
                            // relative URLs like "/api/products"
-  token?: string;          // forwarded as the `token` request header
+  token?: string;          // sent as `Authorization: OAuth <token>` on every
+                           // request (GET, POST, PUT, DELETE alike)
   fetch?: typeof fetch;    // custom fetch (Node < 18, tests, interceptors)
   signal?: AbortSignal;    // cancellation (hooks pass this automatically)
 }
 ```
 
-In the browser / Next.js you can usually omit `options` entirely (relative URLs resolve against the current origin). Outside the browser, pass an absolute `baseUrl` and a `token`.
+In the browser / Next.js you can usually omit `options` entirely (relative URLs resolve against the current origin, and the app's routes use the session cookie). Outside the browser, pass the absolute `baseUrl` of an app that mounts the SDK routes (see [API routes](#4-api-routes-nextjs)) and a `token`.
+
+`core` always calls `/api/<route>` paths with the request metadata in an `extras` header, so `baseUrl` must point at such an app, not at the Shopwave API itself.
+
+> **0.3 change:** the token used to travel in `extras.token` for reads and a separate `token` header for writes. It is now always the `Authorization` header. The 0.3 route handlers still accept both old forms, so older clients keep working.
 
 ---
 
@@ -64,8 +75,8 @@ import {
 } from "react-shopwave-connect/core";
 
 const options = {
-  baseUrl: "https://api.shopwave.example",
-  token: process.env.SHOPWAVE_TOKEN,
+  baseUrl: "https://admin.example.com", // an app with the SDK's /api routes
+  token: process.env.SHOPWAVE_TOKEN,    // bare access token
 };
 
 async function main() {
@@ -94,23 +105,80 @@ On Node < 18 (no global `fetch`), inject one:
 import { fetchStores } from "react-shopwave-connect/core";
 import fetch from "node-fetch";
 
-await fetchStores({}, { baseUrl: "https://api.merchantstack.com", fetch });
+await fetchStores({}, { baseUrl: "https://admin.example.com", token, fetch });
 ```
 
-Functions **throw** on network failure or API errors (the error message contains the serialized API errors), so wrap calls in `try/catch`.
+Functions **throw** `ShopwaveApiError` on failure:
+
+```ts
+import { saveProduct, ShopwaveApiError } from "react-shopwave-connect/core";
+
+try {
+  await saveProduct({ name: "Tea", barcode: "123" });
+} catch (e) {
+  if (e instanceof ShopwaveApiError) {
+    e.status;          // HTTP status (0 = no response). 200/201 when the API answered with errors.
+    e.errors;          // api.message.errors, e.g. { 908: { id: 908, title: … } }
+    e.isUnauthorized;  // 401 or error 908 → send the user to log in
+  }
+}
+```
+
+The SDK never logs requests (older versions `console.log`ged headers, including tokens).
+
+### Saving and deleting (typed)
+
+Each entity has `save…`, `delete…` and `fetch…(id)`:
+
+```ts
+import { saveCategory, deleteCategory, fetchCategory } from "react-shopwave-connect/core";
+
+const created = await saveCategory({ title: "Drinks", parentId: null }); // no id → create
+created.id;                                                              // the new id, straight from the save
+
+const updated = await saveCategory({ id: created.id, title: "Hot drinks" }); // id → update
+
+await fetchCategory(created.id);                     // Category | null
+await fetchCategory(created.id, { deleted: true });  // include soft-deleted
+
+await deleteCategory(created.id);
+```
+
+| Entity    | Save / delete / read one                                  | App routes                    |
+| --------- | --------------------------------------------------------- | ----------------------------- |
+| product   | `saveProduct`, `deleteProduct`, `fetchProduct`             | `/api/products[/:id]`         |
+| category  | `saveCategory`, `deleteCategory`, `fetchCategory`          | `/api/categories[/:id]`       |
+| store     | `saveStore`, `deleteStore`, `fetchStore`                   | `/api/stores[/:id]`           |
+| promotion | `savePromotion`, `deletePromotion` (ends it), `fetchPromotion` | `/api/promotions[/:id]`       |
+| employee  | `saveEmployee`, `deleteEmployee` (retires), `fetchEmployee` | `/api/employees[/:id]`        |
+| consumer  | `fetchConsumer` only — read-only in the API                | `/api/consumer[/:id]` (GET)   |
+
+How they behave (matches what the Shopwave API does):
+
+- **Save** sends `{ <collection>: { "0": entity } }`. Shopwave upserts (an `id` means update), answers **201** and echoes the entity under the same ref with its `id` and server fields. The function checks `api.message.errors` and that the ref came back, and returns the saved entity (fields the echo leaves out are kept from your input). `saveEntities(kind, [a, b])` saves several at once and matches results back by ref.
+- **Delete** is a soft delete (read it back with `deleted: true`). Shopwave answers **205 with an empty body — also for ids that don't exist**, so a resolved promise means "accepted", not "a record was deleted".
+- **Read one** calls `GET /api/<route>/:id` and returns the record or `null`. List reads return `[]` when nothing matches (Shopwave answers with an empty body).
+- **Promotions:** Shopwave has no promotion DELETE; `deletePromotion` (and `DELETE /api/promotions/:id`) ends the promotion by setting `endDate` to now.
+- **Employees:** Shopwave has no employee DELETE, so `deleteEmployee` (and `DELETE /api/employees/:id`) retires the employee by setting `exitDate`. Updating an existing employee only changes `roleId`, `joinedDate` and `exitDate` — names and email are fixed — and the echo carries only those fields, so re-read with `fetchEmployee` if you need the stored record.
+- **Consumers** are read-only (`GET /consumer` by `ids`); their write/delete routes answer 405.
+- Errors are read from `api.message.errors` and also `api.message.error` (the name used in the [API reference](https://developer.merchantstack.com/api-reference.html)).
+
+The generic forms are `saveEntity(kind, item)`, `deleteEntityById(kind, id)` and `fetchEntityById(kind, id)`; `SHOPWAVE_ENTITIES` lists each entity's route, collection key, Shopwave path and id headers.
 
 ### Available `core` functions
 
 | Domain    | Function(s)                                              |
 | --------- | ------------------------------------------------------- |
-| category  | `fetchCategories`                                       |
-| consumer  | `fetchConsumers`                                        |
-| employee  | `fetchEmployees`                                        |
-| product   | `fetchProducts`, `fetchProductsMap` (batched, keyed)    |
-| store     | `fetchStores`                                           |
+| category  | `fetchCategories`, `fetchCategory`, `saveCategory`, `deleteCategory` |
+| consumer  | `fetchConsumers`, `fetchConsumer` (read-only)            |
+| employee  | `fetchEmployees`, `fetchEmployee`, `saveEmployee`, `deleteEmployee` |
+| product   | `fetchProducts`, `fetchProductsMap` (batched, keyed), `fetchProduct`, `saveProduct`, `deleteProduct` |
+| promotion | `fetchPromotions`, `fetchPromotion`, `savePromotion`, `deletePromotion` |
+| store     | `fetchStores` (now with `storeIds`), `fetchStore`, `saveStore`, `deleteStore` |
 | report    | `fetchReport`                                           |
 | session   | `fetchSession`, `loginPath`, `logoutPath`, `logout`     |
-| entity    | `deleteEntity`, `submitEntity`                          |
+| entity    | `saveEntity`, `saveEntities`, `deleteEntityById`, `fetchEntityById`; low-level `submitEntity` / `deleteEntity` (raw endpoint) |
+| errors    | `ShopwaveApiError`, `getApiErrorMap`, `assertNoApiErrors` |
 | basket    | `buildBasketReportQuery`, `parseBasketReportData`, `combineBasketRows`, `computeBasketSummary`, … (pure transforms) |
 
 All types/interfaces (`Product`, `Store`, `Category`, `Consumer`, `Employee`, `ReportQueryMap`, `Basket*`, `apiResponse`, …) are exported from `core` too.
@@ -122,8 +190,12 @@ All types/interfaces (`Product`, `Store`, `Category`, `Consumer`, `Employee`, `R
 Every auto-fetching hook returns the same shape:
 
 ```ts
-{ data, loading, error, refetch }
+{ data, loading, fetching, error, errorStatus, refetch }
 ```
+
+- `loading` is true only while there's nothing to show yet (first load, or the params changed).
+- `refetch()` keeps the current `data` on screen until the new data arrives (`fetching` is true meanwhile), so lists don't flash a skeleton after every save. A failed refetch keeps the old data and sets `error`.
+- `errorStatus` is the HTTP status of the last error.
 
 ```tsx
 "use client";
@@ -157,7 +229,9 @@ They fetch on mount and re-run when their arguments change. `useConsumer` and `u
 
 ### Manually-triggered hooks (`useCallback`-based)
 
-`useDelete`, `useSubmit`, `useLogout` return `{ mutate, data, loading, error }` — nothing fires until you call `mutate`:
+For saves and deletes, prefer calling the typed `core` functions (`saveProduct`, `deleteStore`, …) from your event handlers — they return the saved entity with its id.
+
+`useDelete`, `useSubmit`, `useLogout` return `{ mutate, data, loading, error, errorStatus }` — nothing fires until you call `mutate`:
 
 ```tsx
 import { useDelete, useSubmit } from "react-shopwave-connect/hooks";
@@ -303,9 +377,53 @@ export function AccountButton() {
 
 Use plain links / `window.location` for login and logout — they are full-page redirects to the auth server, not client-side navigations.
 
+### 4. API routes (Next.js)
+
+`core` calls `/api/<route>` on your app. `createShopwaveApi` provides those routes, using the session from step 1:
+
+```ts
+// lib/shopwave.ts
+import { createShopwaveApi } from "react-shopwave-connect/next";
+import { auth } from "@/lib/auth";
+
+export const shopwave = createShopwaveApi({ auth, apiUrl: process.env.SHOPWAVE_API_SERVER_URL! });
+```
+
+```ts
+// app/api/products/route.ts       — list/filter, create/update
+import { shopwave } from "@/lib/shopwave";
+export const { GET, POST, PUT } = shopwave.collection("product");
+
+// app/api/products/[id]/route.ts  — read one, update, delete
+import { shopwave } from "@/lib/shopwave";
+export const { GET, PUT, DELETE } = shopwave.item("product");
+
+// app/api/report/route.ts         — any other Shopwave path, read-only
+import { shopwave } from "@/lib/shopwave";
+export const { GET } = shopwave.passthrough("report");
+```
+
+Entities: `product`, `category`, `store`, `promotion`, `employee` (DELETE retires via `exitDate`), `promotion` (DELETE ends it via `endDate`), `consumer` (mounted at `/api/consumer`; GET only, writes answer 405). For anything else, `shopwave.forward(request, { method, path, headers, postBody })` does the same token/refresh/encoding work for a custom handler.
+
+Every handler:
+
+- uses the caller's `Authorization: OAuth <token>` when present (also the legacy `token` header / `extras.token`), otherwise the logged-in user's token; `401` when there's neither. Turn caller tokens off with `allowRequestToken: false`.
+- turns the `extras` JSON header into upstream headers, dropping `Authorization`, `token`, `Cookie`, `Host`, `x-accept-version` and other transport headers; `400` if it isn't a JSON object.
+- sends writes as the form field `postBody=<JSON>`, accepting the SDK shape `{ products: { "0": {…} } }`, the older `{ products: { new | updated: {…} } }`, or a bare entity. Item `PUT` forces the id from the URL.
+- on HTTP 401 or API error 908 with the session token, refreshes once and retries.
+- answers with Shopwave's own status and body (201 + echo for saves, 205 + empty body for deletes, error envelopes as-is); `502` if the API can't be reached. Only the method and path are ever logged.
+
+For calls that bring their own token (scripts, the integration tests), let them past the proxy guard:
+
+```ts
+await auth.protect(request, { publicPaths: [...], allowRequestToken: true });
+```
+
+Options: `apiVersion` (default `"2.0"`), `fetch`, `entities` (override a route/header, e.g. `{ employee: { idHeader: "userId" } }`), `blockedExtras`, `onError`.
+
 ### Other frameworks
 
-`react-shopwave-connect/server` has the same building blocks without Next.js: `createShopwaveOAuth(config)` → `buildLoginUrl({ state })`, `exchangeCode(code)`, `refreshToken(token)`, `buildLogoutUrl()`, plus `createState`, `sanitizeReturnTo`, `isTokenExpired`, `isExpiredTokenResponse` and `authorizationHeader`. Store the token in your framework's session (Express `express-session`, iron-session's `getIronSession(req, res)`, …).
+`react-shopwave-connect/server` has the same building blocks without Next.js: `createShopwaveOAuth(config)` → `buildLoginUrl({ state })`, `exchangeCode(code)`, `refreshToken(token)`, `buildLogoutUrl()`, plus `createState`, `sanitizeReturnTo`, `isTokenExpired`, `isExpiredTokenResponse` and `authorizationHeader`. The API routes are `createShopwaveApiHandlers({ apiUrl, getAuthorization })` — plain `Request → Response` handlers, the same ones `createShopwaveApi` wraps. Store the token in your framework's session (Express `express-session`, iron-session's `getIronSession(req, res)`, …).
 
 ### Moving an existing app over
 
@@ -329,27 +447,28 @@ npm run typecheck   # tsc --noEmit
 
 ## Testing
 
-Unit tests (offline, no credentials) cover the OAuth client, token handling, the Next.js handlers (with an in-memory cookie store) and the session client:
+Unit tests (offline, no credentials) cover the OAuth client, token handling, the Next.js handlers (with an in-memory cookie store), the session client, the request layer (token header, errors, no logging), the typed save/delete/read functions, the API route handlers (extras filtering, refresh-and-retry, body normalisation, 205 pass-through) and the hooks' query state:
 
 ```bash
 npm test            # = npm run test:unit
 ```
 
-Integration tests run against a live API using [Vitest](https://vitest.dev). Tests are located in `tests/integration/` and cover full CRUD lifecycles for Products, Categories, Consumers, and Employees.
+Integration tests use [Vitest](https://vitest.dev) and run against **an app that mounts the SDK routes** (e.g. AdminUI on `npm run dev`), which forwards to the Shopwave API. They cover create → read (by id and by filter) → update → delete with the typed functions for Products and Categories, create → read → role update → retire for Employees, read-only checks for Consumers, plus unknown ids and the legacy `submitEntity` body. They create and delete real records on the account behind the token.
 
 ### Environment Variables
 
 | Variable    | Description                          | Example                                   |
 |-------------|--------------------------------------|-------------------------------------------|
-| `API_URL`   | Base URL for the API                 | `https://api.staging.merchantstack.com`   |
-| `API_TOKEN` | Authentication token                 | `your-staging-token`                      |
+| `API_URL`   | Origin of the app with the SDK routes | `http://localhost:3000`                  |
+| `API_TOKEN` | Bare Shopwave access token (no `OAuth`/`Bearer` prefix) | `111ad…`                |
 
 ### Running Tests
 
 ```bash
 # Set environment variables
-export API_URL=https://api.staging.merchantstack.com
-export API_TOKEN=your-staging-token
+# with the app running (AdminUI: npm run dev)
+export API_URL=http://localhost:3000
+export API_TOKEN=<bare access token>
 
 # Run all integration tests
 npm run test:integration
@@ -366,6 +485,10 @@ tests/
     server.test.ts                 # OAuth client, tokens, returnTo/state
     next.test.ts                   # Next.js handlers, refresh, proxy guard
     session-client.test.ts         # fetchSession / loginPath / logoutPath
+    request.test.ts                # token header, ShopwaveApiError, no logging
+    entities.test.ts               # save/delete/fetch-by-id per entity
+    api-routes.test.ts             # /api route handlers
+    query-state.test.ts            # useQuery keeps data while refetching
   integration/
     setup.ts                       # Shared config and helpers
     products.integration.test.ts   # Products CRUD lifecycle

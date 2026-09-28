@@ -1,4 +1,5 @@
-import { apiGet, getApiErrors, type RequestOptions } from "./request";
+import { apiGet, withToken, type RequestOptions } from "./request";
+import { assertNoApiErrors } from "./errors";
 import type { apiResponse } from "./types";
 
 export interface ProductInstance {
@@ -41,7 +42,7 @@ export interface FetchProductsParams {
   storeId?: number;
   /** Whether to include soft-deleted records. Defaults to `false`. */
   deleted?: boolean;
-  /** Token override (also accepted via `options.token`). */
+  /** @deprecated Pass `options.token` instead. Sent the same way (Authorization header). */
   token?: string;
 }
 
@@ -60,18 +61,13 @@ export async function fetchProducts(
   if (params.storeId) {
     extras.storeId = params.storeId;
   }
-  if (params.token) {
-    extras.token = params.token;
-  }
 
-  const json = await apiGet<ProductResponse>("/api/products", extras, options);
+  const json = await apiGet<ProductResponse | null>("/api/products", extras, withToken(options, params.token));
 
-  const error = getApiErrors(json.api);
-  if (error) {
-    throw new Error(error);
-  }
+  assertNoApiErrors(json, 200);
 
-  return Object.values(json.products ?? {});
+  // Shopwave answers an empty body when nothing matches.
+  return Object.values(json?.products ?? {});
 }
 
 /**

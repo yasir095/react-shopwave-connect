@@ -24,12 +24,29 @@ import {
 } from "../server/token";
 import { createState, safeEqual, sanitizeReturnTo } from "../server/returnTo";
 import { ShopwaveAuthError } from "../server/errors";
+import {
+  createShopwaveApiHandlers,
+  readRequestToken,
+  type ShopwaveApiConfig,
+  type ShopwaveApiHandlers,
+} from "../server/api";
 import type { SessionStatus } from "../core/session";
 
 export type { SessionStatus } from "../core/session";
 export type { ShopwaveToken } from "../server/token";
 export { ShopwaveAuthError } from "../server/errors";
 export { isExpiredTokenResponse, authorizationHeader } from "../server/token";
+export { readRequestToken, SHOPWAVE_ENTITIES } from "../server";
+export type {
+  ShopwaveApiHandlers,
+  CollectionHandlers,
+  ItemHandlers,
+  RouteContext,
+  RouteHandler,
+  ForwardInit,
+  EntityKind,
+  EntityDefinition,
+} from "../server";
 
 // ---------------------------------------------------------------------------
 // Config & types
@@ -105,6 +122,13 @@ export interface ProtectOptions {
   publicPaths?: string[];
   /** Paths that get a 401 JSON response instead of a login redirect. Defaults to `["/api"]`. */
   apiPaths?: string[];
+  /**
+   * Let API requests that carry their own token (`Authorization: OAuth <token>`,
+   * or the legacy `token` header / `extras.token`) through without a session
+   * cookie. The route handlers from {@link createShopwaveApi} forward that token
+   * to the Shopwave API, which validates it. Defaults to `false`.
+   */
+  allowRequestToken?: boolean;
 }
 
 export interface ShopwaveAuth {
@@ -487,8 +511,10 @@ export function createShopwaveAuth(config: ShopwaveAuthConfig): ShopwaveAuth {
       if (pathMatches(pathname, [authPath, logoutPath, sessionPath, ...(options.publicPaths ?? [])])) {
         return undefined;
       }
+      const isApi = pathMatches(pathname, options.apiPaths ?? ["/api"]);
+      if (isApi && options.allowRequestToken && readRequestToken(request)) return undefined;
       if (await isAuthenticated(request)) return undefined;
-      if (pathMatches(pathname, options.apiPaths ?? ["/api"])) {
+      if (isApi) {
         return NextResponse.json({ error: "unauthorized" }, { status: 401, headers: noStore });
       }
       return redirectTo(loginPath(pathname + search), request);
@@ -509,4 +535,43 @@ export function createShopwaveAuth(config: ShopwaveAuthConfig): ShopwaveAuth {
       },
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// API route handlers
+// ---------------------------------------------------------------------------
+
+export interface ShopwaveNextApiConfig extends Omit<ShopwaveApiConfig, "getAuthorization"> {
+  /** The app's auth instance: supplies (and refreshes) the logged-in user's token. */
+  auth: Pick<ShopwaveAuth, "getAuthorizationHeader">;
+}
+
+/**
+ * Ready-made Next.js route handlers for the SDK's `/api/*` contract, using the
+ * session from `createShopwaveAuth`. Create once (e.g. `lib/shopwave.ts`):
+ *
+ * ```ts
+ * export const shopwave = createShopwaveApi({ auth, apiUrl: process.env.SHOPWAVE_API_SERVER_URL! });
+ * ```
+ *
+ * then each route file is one line:
+ *
+ * ```ts
+ * // app/api/products/route.ts
+ * export const { GET, POST, PUT } = shopwave.collection("product");
+ * // app/api/products/[id]/route.ts
+ * export const { GET, PUT, DELETE } = shopwave.item("product");
+ * // app/api/report/route.ts
+ * export const { GET } = shopwave.passthrough("report");
+ * ```
+ */
+export function createShopwaveApi(config: ShopwaveNextApiConfig): ShopwaveApiHandlers {
+  if (typeof window !== "undefined") {
+    throw new Error("react-shopwave-connect/next is server-only. Import it from route handlers or server code.");
+  }
+  const { auth, ...rest } = config;
+  return createShopwaveApiHandlers({
+    ...rest,
+    getAuthorization: (options) => auth.getAuthorizationHeader(options),
+  });
 }

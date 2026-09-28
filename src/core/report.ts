@@ -1,4 +1,5 @@
-import { apiGet, getApiErrors, type RequestOptions } from "./request";
+import { apiGet, type RequestOptions } from "./request";
+import { assertNoApiErrors } from "./errors";
 import type { apiResponse } from "./types";
 
 export interface ReportKey {
@@ -45,12 +46,9 @@ export async function fetchReport(
 ): Promise<ReportResponse["reports"]> {
   const extras: Record<string, unknown> = { query: JSON.stringify(query) };
 
-  const json = await apiGet<ReportResponse>("/api/report", extras, options);
+  const json = await apiGet<ReportResponse | null>("/api/report", extras, options);
 
-  const error = getApiErrors(json.api);
-  if (error) {
-    throw new Error(error);
-  }
+  assertNoApiErrors(json, 200);
 
-  return json.reports ?? {};
+  return json?.reports ?? {};
 }

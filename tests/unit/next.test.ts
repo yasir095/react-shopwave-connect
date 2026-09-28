@@ -20,7 +20,7 @@ vi.mock("next/headers", () => ({
   }),
 }));
 
-import { createShopwaveAuth, type ShopwaveSessionData } from "../../src/next";
+import { createShopwaveAuth, createShopwaveApi, type ShopwaveSessionData } from "../../src/next";
 
 const PASSWORD = "a-very-long-session-password-for-tests-0123456789";
 const COOKIE = "shopwave_session";
@@ -337,5 +337,53 @@ describe("config validation", () => {
     expect(auth.loginPath("/x?y=1")).toBe("/auth?returnTo=%2Fx%3Fy%3D1");
     expect(auth.loginPath("https://evil.com")).toBe("/auth?returnTo=%2F");
     expect(auth.logoutPath).toBe("/auth/logout");
+  });
+});
+
+describe("protect — allowRequestToken", () => {
+  it("lets API calls that carry their own token through only when enabled", async () => {
+    const auth = makeAuth();
+    const withToken = () => new Request(`${APP}/api/products`, { headers: { Authorization: "OAuth abc" } });
+    expect((await auth.protect(withToken()))?.status).toBe(401);
+    expect(await auth.protect(withToken(), { allowRequestToken: true })).toBeUndefined();
+    // legacy extras.token (SDK <= 0.2 GETs)
+    const legacy = new Request(`${APP}/api/products`, { headers: { extras: JSON.stringify({ token: "abc" }) } });
+    expect(await auth.protect(legacy, { allowRequestToken: true })).toBeUndefined();
+  });
+
+  it("never applies to pages", async () => {
+    const auth = makeAuth();
+    const page = await auth.protect(new Request(`${APP}/products`, { headers: { Authorization: "OAuth abc" } }), {
+      allowRequestToken: true,
+    });
+    expect(page?.status).toBe(302);
+  });
+});
+
+describe("createShopwaveApi", () => {
+  it("uses the session token and refreshes it through auth on 401", async () => {
+    await seedToken({ accessToken: "old", refreshToken: "r1", tokenType: "OAuth", expiresAt: Date.now() + 60_000 });
+    const upstream = vi.fn()
+      .mockResolvedValueOnce(new Response("{}", { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ categories: {} }), { status: 200 }));
+    fetchMock.mockResolvedValueOnce(tokenResponse("new", "r1"));
+
+    const shopwave = createShopwaveApi({ auth: makeAuth(), apiUrl: "https://api.example.com", fetch: upstream as unknown as typeof fetch });
+    const res = await shopwave.collection("category").GET(new Request(`${APP}/api/categories`));
+
+    expect(res.status).toBe(200);
+    const sent = upstream.mock.calls.map(([, init]) => new Headers((init as RequestInit).headers).get("authorization"));
+    expect(sent).toEqual(["OAuth old", "OAuth new"]);
+    expect((await sessionData()).token).toMatchObject({ accessToken: "new" });
+  });
+
+  it("answers 401 when logged out", async () => {
+    const upstream = vi.fn();
+    const shopwave = createShopwaveApi({ auth: makeAuth(), apiUrl: "https://api.example.com", fetch: upstream as unknown as typeof fetch });
+    const res = await shopwave.item("product").DELETE(new Request(`${APP}/api/products/1`, { method: "DELETE" }), {
+      params: Promise.resolve({ id: "1" }),
+    });
+    expect(res.status).toBe(401);
+    expect(upstream).not.toHaveBeenCalled();
   });
 });

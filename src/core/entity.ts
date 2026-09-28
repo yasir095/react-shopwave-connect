@@ -1,10 +1,13 @@
 import { apiDelete, apiSend, type RequestOptions } from "./request";
+import { assertNoApiErrors } from "./errors";
 
 /**
- * Generic CRUD-style mutations extracted from `useHandleDelete` /
- * `useHandleSubmit`. The original hooks also surfaced notistack snackbars; that
- * UI concern is deliberately left to the hooks/host layer so core stays
- * dependency-free.
+ * Low-level, untyped mutations: the caller supplies the route and payload.
+ *
+ * Prefer the typed functions in `./entities` (`saveProduct`, `deleteCategory`,
+ * …): they know each route, build the request envelope, check the response and
+ * return the saved entity with its id. Keep these for routes that have no typed
+ * function yet (e.g. `/api/merchant`).
  */
 
 /**
@@ -36,18 +39,21 @@ export interface SubmitEntityResponse<R = any> {
 }
 
 /**
- * Sends a create/update mutation and returns the parsed `result` field
- * (matching the original `result.result` access).
+ * Sends a create/update mutation. Returns the response's `result` field when it
+ * has one (older app routes wrapped their answer that way), otherwise the whole
+ * parsed response body. Throws `ShopwaveApiError` on HTTP or API errors.
  */
 export async function submitEntity<R = any>(
   { endpoint, method = "POST", payload }: SubmitEntityArgs,
   options: RequestOptions = {}
 ): Promise<R | undefined> {
-  const json = await apiSend<SubmitEntityResponse<R>>(
+  const json = await apiSend<SubmitEntityResponse<R> | null>(
     endpoint,
     method,
     payload,
     options
   );
-  return json.result;
+  assertNoApiErrors(json, 200);
+  if (json && typeof json === "object" && "result" in json) return json.result;
+  return (json ?? undefined) as R | undefined;
 }

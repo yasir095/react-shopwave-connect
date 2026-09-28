@@ -1,129 +1,113 @@
 import { describe, it, expect, afterAll } from 'vitest';
-import { submitEntity, deleteEntity } from '../../src/core/entity';
-import { fetchCategories, type Category } from '../../src/core/category';
+import {
+  saveCategory,
+  deleteCategory,
+  fetchCategory,
+  fetchCategories,
+  submitEntity,
+  deleteEntity,
+  ShopwaveApiError,
+} from '../../src/core';
 import { requestOptions, uniqueId } from './setup';
 
 describe.sequential('Categories API Integration', () => {
-  // Shared variable to store the created category ID across tests
   let createdCategoryId: number | null = null;
-
-  // Test data with unique identifiers to prevent collisions
+  let legacyCategoryId: number | null = null;
   const testCategoryTitle = uniqueId('Test_Category');
 
   afterAll(async () => {
-    // Cleanup: delete the created category even if tests fail
-    if (createdCategoryId !== null) {
+    for (const id of [createdCategoryId, legacyCategoryId]) {
+      if (id === null) continue;
       try {
-        await deleteEntity('categories', createdCategoryId, requestOptions);
+        await deleteCategory(id, requestOptions);
       } catch (error) {
-        console.warn(`Cleanup: Failed to delete category ${createdCategoryId}`, error);
+        console.warn(`Cleanup: Failed to delete category ${id}`, error);
       }
     }
   });
 
-  it('should create a new category (POST)', async () => {
-    const payload = {
-      title: testCategoryTitle,
-      parentId: null,
-      type: 1,
-    };
+  it('creates a category and returns it with its id (saveCategory)', async () => {
+    const saved = await saveCategory({ title: testCategoryTitle, parentId: null, type: 1 }, requestOptions);
 
-    const result = await submitEntity<Category>(
-      {
-        endpoint: '/api/categories',
-        method: 'POST',
-        payload,
-      },
-      requestOptions
-    );
+    expect(saved.id).toBeTypeOf('number');
+    expect(saved.id).toBeGreaterThan(0);
+    expect(saved.title).toBe(testCategoryTitle);
 
-    expect(result).toBeDefined();
-    expect(result?.id).toBeTypeOf('number');
-    expect(result?.title).toBe(testCategoryTitle);
-
-    // Store the ID for subsequent tests
-    createdCategoryId = result!.id;
+    createdCategoryId = saved.id;
   });
 
-  it('should read the created category (GET)', async () => {
+  it('reads it back by id (GET /api/categories/:id) and by filter', async () => {
     expect(createdCategoryId).not.toBeNull();
 
-    const categories = await fetchCategories(
-      { categoryIds: [createdCategoryId!] },
-      requestOptions
-    );
+    const one = await fetchCategory(createdCategoryId!, {}, requestOptions);
+    expect(one?.id).toBe(createdCategoryId);
+    expect(one?.title).toBe(testCategoryTitle);
 
-    expect(categories).toHaveLength(1);
-    expect(categories[0].id).toBe(createdCategoryId);
-    expect(categories[0].title).toBe(testCategoryTitle);
+    const list = await fetchCategories({ categoryIds: [createdCategoryId!] }, requestOptions);
+    expect(list).toHaveLength(1);
+    expect(list[0].title).toBe(testCategoryTitle);
   });
 
-  it('should update the category (PUT)', async () => {
+  it('updates it and returns the saved values', async () => {
     expect(createdCategoryId).not.toBeNull();
-
     const updatedTitle = uniqueId('Updated_Category');
-    const payload = {
-      id: createdCategoryId,
-      title: updatedTitle,
-      parentId: null,
-      type: 2,
-    };
 
-    const result = await submitEntity<Category>(
-      {
-        endpoint: `/api/categories/${createdCategoryId}`,
-        method: 'PUT',
-        payload,
-      },
+    const saved = await saveCategory(
+      { id: createdCategoryId!, title: updatedTitle, parentId: null, type: 2 },
       requestOptions
     );
+    expect(saved.id).toBe(createdCategoryId);
+    expect(saved.title).toBe(updatedTitle);
+    expect(saved.type).toBe(2);
 
-    expect(result).toBeDefined();
-    expect(result?.title).toBe(updatedTitle);
-    expect(result?.type).toBe(2);
-
-    // Re-fetch to verify the change persisted
-    const categories = await fetchCategories(
-      { categoryIds: [createdCategoryId!] },
-      requestOptions
-    );
-
-    expect(categories).toHaveLength(1);
-    expect(categories[0].title).toBe(updatedTitle);
-    expect(categories[0].type).toBe(2);
+    const reread = await fetchCategory(createdCategoryId!, {}, requestOptions);
+    expect(reread?.title).toBe(updatedTitle);
+    expect(reread?.type).toBe(2);
   });
 
-  it('should delete the category (DELETE)', async () => {
+  it('deletes it (205, soft delete)', async () => {
     expect(createdCategoryId).not.toBeNull();
+    const deletedId = createdCategoryId!;
 
-    // Delete should complete without throwing
-    await expect(
-      deleteEntity('categories', createdCategoryId!, requestOptions)
-    ).resolves.toBeUndefined();
-
-    // Mark as cleaned up so afterAll doesn't try to delete again
-    const deletedId = createdCategoryId;
+    await expect(deleteCategory(deletedId, requestOptions)).resolves.toBeUndefined();
     createdCategoryId = null;
 
-    // Verify soft-delete: fetch with deleted=true to confirm deleteDate is set
-    const categories = await fetchCategories(
-      { categoryIds: [deletedId!], deleted: true },
-      requestOptions
-    );
+    const deleted = await fetchCategories({ categoryIds: [deletedId], deleted: true }, requestOptions);
+    expect(deleted).toHaveLength(1);
+    expect(deleted[0].deleteDate).toBeTruthy();
 
-    expect(categories).toHaveLength(1);
-    expect(categories[0].id).toBe(deletedId);
-    // deleteDate should be set (non-empty string) after deletion
-    expect(categories[0].deleteDate).toBeTruthy();
+    await expect(fetchCategory(deletedId, {}, requestOptions)).resolves.toBeNull();
+    const withDeleted = await fetchCategory(deletedId, { deleted: true }, requestOptions);
+    expect(withDeleted?.id).toBe(deletedId);
   });
 
-  it('should not return deleted category when deleted=false', async () => {
-    // Fetch without deleted flag (defaults to false) should not return soft-deleted categories
-    const categories = await fetchCategories(
-      { categoryIds: [999999999] },
+  it('delete of an unknown id still resolves (the API answers 205)', async () => {
+    await expect(deleteCategory(999999999, requestOptions)).resolves.toBeUndefined();
+  });
+
+  it('does not return unknown ids', async () => {
+    const categories = await fetchCategories({ categoryIds: [999999999] }, requestOptions);
+    expect(categories).toHaveLength(0);
+  });
+
+  it('still accepts the old { categories: { new } } body through submitEntity', async () => {
+    const title = uniqueId('Legacy_Category');
+    const body = await submitEntity<{ categories: Record<string, { id: number; title: string }> }>(
+      { endpoint: '/api/categories', method: 'POST', payload: { categories: { new: { title, parentId: null, type: 1 } } } },
       requestOptions
     );
+    const echoed = Object.values(body?.categories ?? {})[0];
+    expect(echoed?.id).toBeTypeOf('number');
+    expect(echoed?.title).toBe(title);
+    legacyCategoryId = echoed.id;
 
-    expect(categories).toHaveLength(0);
+    await deleteEntity('categories', legacyCategoryId, requestOptions);
+    legacyCategoryId = null;
+  });
+
+  it('reports errors as ShopwaveApiError with an HTTP status', async () => {
+    const error = await fetchCategories({}, { ...requestOptions, token: 'not-a-real-token' }).catch((e) => e);
+    expect(error).toBeInstanceOf(ShopwaveApiError);
+    expect(error.status).toBeGreaterThanOrEqual(200);
   });
 });

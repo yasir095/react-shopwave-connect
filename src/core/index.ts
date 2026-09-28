@@ -7,6 +7,7 @@
 
 export * from "./types";
 export * from "./request";
+export * from "./errors";
 
 export * from "./category";
 export * from "./consumer";
@@ -17,4 +18,5 @@ export * from "./store";
 export * from "./report";
 export * from "./session";
 export * from "./entity";
+export * from "./entities";
 export * from "./basket";
