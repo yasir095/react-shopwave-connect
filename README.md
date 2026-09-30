@@ -165,6 +165,59 @@ How they behave (matches what the Shopwave API does):
 
 The generic forms are `saveEntity(kind, item)`, `deleteEntityById(kind, id)` and `fetchEntityById(kind, id)`; `SHOPWAVE_ENTITIES` lists each entity's route, collection key, Shopwave path and id headers.
 
+### Merchant, current user and image uploads
+
+The merchant and the logged-in user are single records (one per login), and images go to the Shopwave CDN:
+
+```ts
+import {
+  fetchMerchant, updateMerchant, fetchUser,
+  uploadMerchantImage, setMerchantImage, getMerchantImageUrl,
+  merchantLinksToForm, merchantLinksFromForm,
+} from "react-shopwave-connect/core";
+
+const merchant = await fetchMerchant();          // Merchant | null
+const user = await fetchUser();                  // User | null  ({ id, firstName, lastName, email, employee })
+
+// Reads the merchant, merges the patch over it and saves the record, so
+// fields you don't mention (companyNumber, vatNumber, links, …) are kept.
+// Returns the merchant as stored (read back after the save).
+await updateMerchant({ vatNumber: "123456789", links: merchantLinksFromForm({ website: "https://example.com" }) });
+
+// Images: fit to the slot's size, upload with the slot's kind, then save the file name.
+const image = await uploadMerchantImage(file, "square");          // { id, url, path }
+await updateMerchant({ imageIds: setMerchantImage(merchant?.imageIds, "square", image.id) });
+getMerchantImageUrl(saved.imageIds, "square");                     // HTTPS URL for <img src>
+```
+
+The shapes below are the ones adminV1 saves and adminV2 reads, so all three admins share one record (confirmed on the live API with merchant 5644, 30 Sep 2026):
+
+| Field | Shape |
+|---|---|
+| `imageIds` | `{ logo: { receipt, square }, feature: [ … ] }` — **file names** on write (the uploader's `fileName`), **full `http://static.merchantstack.com/…` URLs** on read |
+| `colours` | `{ primary: { main, highlight, contrast } }` (hex strings; adminV2 uses `primary.main` behind the logo) |
+| `links` | `{ website: { home }, social: { twitter, facebook, instagram } }` |
+
+- **Merchant fields** (`GET`/`POST /merchant`): `id`, `name`, `description`, `companyNumber`, `vatNumber`, `categoryId`, `estAnnualRevenue`, `note`, and the three objects above. The API returns `{}` for an empty object.
+- **What the live API does on `POST /merchant`** (checked 30 Sep 2026): it replaces the record. A scalar field left out (`companyNumber`, `vatNumber`, `note`, …) becomes `null`; an object field left out (`colours`, `links`, `imageIds`) is kept, and one that is sent replaces the stored one (`{}` clears it). It answers **205 with an empty body**. It silently cuts `companyNumber` to 11 characters and `vatNumber` to 9 (a UK VAT number without `GB`).
+- **`updateMerchant(patch, { merge })`**: `merge` (default `true`) reads first and merges the scalar fields, so nothing is wiped. Object fields (`MERCHANT_OBJECT_FIELDS`) are sent only when the patch has them, and then replace the stored one — to change one image, pass the whole `imageIds` (`setMerchantImage` does that). `imageIds` is always sent as file names (`toStoredImageIds`), so you can pass back what you read. It refuses a different merchant `id`, never sends `createdDate`/`modifiedDate`, rejects values longer than `MERCHANT_FIELD_MAX_LENGTH` (`validateMerchant(m)` lists them) instead of letting the API cut them, and returns the merchant **read back after the save**, so you see exactly what was kept. `merge: false` sends only the patch (which must include `id`, and clears the scalar fields you leave out).
+- **Merchant image slots** (`MERCHANT_IMAGE_SLOTS`): the API doesn't resize, and adminV1 accepts only these exact sizes.
+
+  | Slot | Stored at | Upload kind | Size |
+  |---|---|---|---|
+  | `receipt` | `imageIds.logo.receipt` | `merchant` | 576 × 325 |
+  | `square` | `imageIds.logo.square` | `merchant` | 1000 × 1000 |
+  | `featured` | `imageIds.feature[0]` | `merchantFeature` | 1200 × 600 |
+
+  The API builds each image URL from its key, not from where the file was uploaded (`logo.*` → `…/merchant/<id>/logo/<file>`, `feature` → `…/feature/<file>`), so the featured image must be uploaded as `merchantFeature`. `POST /merchant` stores all three objects with the SDK's `{ merchant: … }` body; adminV1's `{ merchants: { "0": … } }` form isn't needed.
+
+  `uploadMerchantImage(file, slot, { fit = true })` scales and centre-crops the image to the slot's size in the browser (`fitImageToSize`, `coverCrop`) and uploads it with the slot's kind; `fit: false` sends the file as-is. `getMerchantImage` / `getMerchantImageUrl` / `setMerchantImage` read and write a slot; `imageFileName(url)` gives the file name in a URL. Hook: `useUploadMerchantImage()`.
+- **Links:** `merchantLinksToForm(links)` gives flat fields (`website`, `twitter`, `facebook`, `instagram`) from the stored shape, flat keys or the old array form; `merchantLinksFromForm(fields)` builds the stored shape; `normalizeMerchantLinks(links)` converts any of them to the stored shape. Colour keys: `MERCHANT_COLOUR_KEYS`.
+- **User** (`GET /user`): the live API returns `id`, `firstName`, `lastName`, `email` and `employee: { merchantId, roleId, stores }` — no `createdDate` and **no `merchant`**, although the reference lists them. There's no option to include it (adminV1 also reads `GET /merchant` separately and attaches it to its session). Read the merchant with `fetchMerchant()`.
+- **`uploadImage(file, { kind, fileName? })`** posts the file to `/api/upload`, which `PUT`s it to Shopwave's `/uploader` (multipart `file`, header `contentType: <kind>`). Kinds: `merchant`, `merchantFeature`, `product`, `user`, `applicationLogo`, `applicationImages` (the last two sent as the API's own spelling, `applicaionLogo`/`applicaionImages`). Live: 201 `{ fileName, path }`. Returns `{ id, url, path }`: `id` is the generated file name (what records store), `path` the URL as the API gave it (`http://static.merchantstack.com/images/…`, which has no HTTPS endpoint), and `url` the same file over HTTPS via `getImageUrl(path)` (`SHOPWAVE_IMAGE_BASE_URL`, the S3 bucket behind the CDN). The upload alone changes no record.
+
+`SHOPWAVE_RESOURCES` (merchant, user) and `SHOPWAVE_UPLOAD` are shared with the server routes, like `SHOPWAVE_ENTITIES`.
+
 ### Available `core` functions
 
 | Domain    | Function(s)                                              |
@@ -176,12 +229,15 @@ The generic forms are `saveEntity(kind, item)`, `deleteEntityById(kind, id)` and
 | promotion | `fetchPromotions`, `fetchPromotion`, `savePromotion`, `deletePromotion` |
 | store     | `fetchStores` (now with `storeIds`), `fetchStore`, `saveStore`, `deleteStore` |
 | report    | `fetchReport`                                           |
+| merchant  | `fetchMerchant`, `updateMerchant`, `validateMerchant`; links `merchantLinksToForm`, `merchantLinksFromForm`, `normalizeMerchantLinks`; images `MERCHANT_IMAGE_SLOTS`, `uploadMerchantImage`, `getMerchantImage`, `getMerchantImageUrl`, `setMerchantImage`, `toStoredImageIds`, `imageFileName` |
+| user      | `fetchUser`                                              |
+| upload    | `uploadImage`, `getImageUrl`, `fitImageToSize`, `readImageSize`, `coverCrop` |
 | session   | `fetchSession`, `loginPath`, `logoutPath`, `logout`     |
 | entity    | `saveEntity`, `saveEntities`, `deleteEntityById`, `fetchEntityById`; low-level `submitEntity` / `deleteEntity` (raw endpoint) |
 | errors    | `ShopwaveApiError`, `getApiErrorMap`, `assertNoApiErrors` |
 | basket    | `buildBasketReportQuery`, `parseBasketReportData`, `combineBasketRows`, `computeBasketSummary`, … (pure transforms) |
 
-All types/interfaces (`Product`, `Store`, `Category`, `Consumer`, `Employee`, `ReportQueryMap`, `Basket*`, `apiResponse`, …) are exported from `core` too.
+All types/interfaces (`Product`, `Store`, `Category`, `Consumer`, `Employee`, `Merchant`, `User`, `UploadedImage`, `ReportQueryMap`, `Basket*`, `apiResponse`, …) are exported from `core` too.
 
 ---
 
@@ -224,14 +280,14 @@ const { data } = useProduct({ storeId }, { baseUrl: "https://api.merchantstack.c
 
 ### Auto-fetch hooks (`useEffect`-based)
 
-`useCategory`, `useConsumer`, `useEmployee`, `useProduct`, `usePromotion`, `useStore`, `useReport`, `useSession`.
+`useCategory`, `useConsumer`, `useEmployee`, `useProduct`, `usePromotion`, `useStore`, `useReport`, `useSession`, `useMerchant`, `useUser` (`useUser({ enabled: false })` stays idle).
 They fetch on mount and re-run when their arguments change. `useConsumer` and `useReport` stay idle until you pass ids / a query (they return `loading: false`, `data: null` until then). `refetch()` replaces the old `reloadFlag` argument.
 
 ### Manually-triggered hooks (`useCallback`-based)
 
 For saves and deletes, prefer calling the typed `core` functions (`saveProduct`, `deleteStore`, …) from your event handlers — they return the saved entity with its id.
 
-`useDelete`, `useSubmit`, `useLogout` return `{ mutate, data, loading, error, errorStatus }` — nothing fires until you call `mutate`:
+`useUpdateMerchant`, `useUploadImage`, `useUploadMerchantImage`, `useDelete`, `useSubmit`, `useLogout` return `{ mutate, data, loading, error, errorStatus }` — nothing fires until you call `mutate`:
 
 ```tsx
 import { useDelete, useSubmit } from "react-shopwave-connect/hooks";
@@ -401,7 +457,19 @@ export const { GET, PUT, DELETE } = shopwave.item("product");
 // app/api/report/route.ts         — any other Shopwave path, read-only
 import { shopwave } from "@/lib/shopwave";
 export const { GET } = shopwave.passthrough("report");
+
+// app/api/merchant/route.ts       — read / update the merchant
+export const { GET, PUT } = shopwave.resource("merchant");
+
+// app/api/user/route.ts           — the logged-in user (read-only)
+export const { GET } = shopwave.resource("user");
+
+// app/api/upload/route.ts         — image upload (uploadImage)
+export const { POST } = shopwave.upload();              // or upload({ maxBytes, accept })
 ```
+
+- `resource("merchant")`: `PUT`/`POST` take `{ merchant: {…} }` or the bare object and send every field on as `postBody`. The `id` is required (400 without it), because a POST without one would create a second merchant. `resource("user")` answers 405 to writes.
+- `upload()`: takes multipart `file` + `kind`, checks the size (default 10 MB → 413) and type (default `image/*` → 415), and `PUT`s only the file to `/uploader` with the `contentType` header. `extras` are ignored on uploads. Shopwave's reply (201 `{ fileName, path }`) is passed through.
 
 Entities: `product`, `category`, `store`, `promotion`, `employee` (DELETE retires via `exitDate`), `promotion` (DELETE ends it via `endDate`), `consumer` (mounted at `/api/consumer`; GET only, writes answer 405). For anything else, `shopwave.forward(request, { method, path, headers, postBody })` does the same token/refresh/encoding work for a custom handler.
 

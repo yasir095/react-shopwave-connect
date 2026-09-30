@@ -23,6 +23,14 @@ import {
   type EntityDefinition,
   type EntityKind,
 } from "../core/entities";
+import {
+  SHOPWAVE_RESOURCES,
+  SHOPWAVE_UPLOAD,
+  UPLOAD_KINDS,
+  isUploadKind,
+  type ResourceDefinition,
+  type ResourceKind,
+} from "../core/resources";
 import { isExpiredTokenResponse } from "./token";
 
 // ---------------------------------------------------------------------------
@@ -226,6 +234,8 @@ export interface ForwardInit {
   headers?: Record<string, string>;
   /** Sent as the form field `postBody=<JSON>`. */
   postBody?: unknown;
+  /** Sent as a multipart body (e.g. uploads). Ignored when `postBody` is set. */
+  formData?: FormData;
   /** Forward the caller's `extras` header as upstream headers. Defaults to `true`. */
   forwardExtras?: boolean;
 }
@@ -255,6 +265,38 @@ export interface ItemHandlers {
   DELETE: RouteHandler;
 }
 
+export interface ResourceHandlers {
+  /** Read the resource (`GET {apiUrl}/<upstream>`). */
+  GET: RouteHandler;
+  /**
+   * Update it: body `{ <key>: { id, … } }` or the bare object. The `id` is
+   * required (without one Shopwave would create a new record). 405 for
+   * read-only resources.
+   */
+  PUT: RouteHandler;
+  /** Same as PUT. */
+  POST: RouteHandler;
+}
+
+export interface UploadOptions {
+  /** Largest accepted file, in bytes. Defaults to 10 MB. */
+  maxBytes?: number;
+  /**
+   * Accepted MIME types. An entry ending in `/` is a prefix (`"image/"`).
+   * Defaults to `["image/"]`.
+   */
+  accept?: string[];
+}
+
+export interface UploadHandlers {
+  /**
+   * Multipart `file` + `kind` (see `UploadKind`) → `PUT {apiUrl}/uploader`.
+   * Answers with Shopwave's reply (201 `{ fileName, path, api }`); 400 for a
+   * missing file or unknown kind, 413 when too large, 415 for other types.
+   */
+  POST: RouteHandler;
+}
+
 export interface ShopwaveApiHandlers {
   /** Calls the Shopwave API for this request (token, extras, refresh-retry) and returns its answer. */
   forward(request: Request, init: ForwardInit): Promise<Response>;
@@ -262,8 +304,12 @@ export interface ShopwaveApiHandlers {
   collection(kind: EntityKind): CollectionHandlers;
   /** Handlers for `app/api/<route>/[id]/route.ts`. */
   item(kind: EntityKind, options?: { param?: string }): ItemHandlers;
-  /** GET-only proxy for a Shopwave path (e.g. `"report"`, `"user"`, `"merchant"`). */
+  /** GET-only proxy for a Shopwave path (e.g. `"report"`). */
   passthrough(path: string): { GET: RouteHandler };
+  /** Handlers for a singleton resource: `app/api/merchant/route.ts`, `app/api/user/route.ts`. */
+  resource(kind: ResourceKind): ResourceHandlers;
+  /** Handler for `app/api/upload/route.ts`. */
+  upload(options?: UploadOptions): UploadHandlers;
   /** The entity table in use (defaults merged with `config.entities`). */
   entity(kind: EntityKind): EntityDefinition;
 }
@@ -340,8 +386,10 @@ export function createShopwaveApiHandlers(config: ShopwaveApiConfig): ShopwaveAp
     }
     if (!authorization) return jsonError(401, "unauthorized", "Not logged in");
 
-    const body =
-      init.postBody === undefined ? undefined : new URLSearchParams({ postBody: JSON.stringify(init.postBody) });
+    const body: BodyInit | undefined =
+      init.postBody !== undefined
+        ? new URLSearchParams({ postBody: JSON.stringify(init.postBody) })
+        : init.formData;
 
     const call = (authz: string) => {
       // Headers is case-insensitive, so explicit headers replace any extras
@@ -350,7 +398,9 @@ export function createShopwaveApiHandlers(config: ShopwaveApiConfig): ShopwaveAp
       for (const [k, v] of Object.entries(init.headers ?? {})) headers.set(k, v);
       headers.set("Authorization", authz);
       headers.set("x-accept-version", apiVersion);
-      if (body) headers.set("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8");
+      if (body instanceof URLSearchParams) headers.set("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8");
+      // Multipart: fetch sets Content-Type with the boundary.
+      else if (body) headers.delete("Content-Type");
       const doFetch = config.fetch ?? fetch;
       return doFetch(`${apiBase()}/${path}`, { method, headers, body, cache: "no-store" } as RequestInit);
     };
@@ -410,6 +460,77 @@ export function createShopwaveApiHandlers(config: ShopwaveApiConfig): ShopwaveAp
     return forward(request, { method: "POST", path: def.upstream, postBody });
   }
 
+  function resourceDef(kind: ResourceKind): ResourceDefinition {
+    const def = SHOPWAVE_RESOURCES[kind];
+    if (!def) throw new Error(`Unknown Shopwave resource "${kind}"`);
+    return def;
+  }
+
+  async function writeResource(request: Request, def: ResourceDefinition): Promise<Response> {
+    if (!def.writable) return jsonError(405, "method_not_allowed", `The Shopwave API doesn't support writes for ${def.key}`);
+    let record: Record<string, unknown>;
+    try {
+      const body = await readJsonBody(request);
+      if (!isPlainObject(body)) throw new RequestBodyError("Request body must be a JSON object");
+      const inner = body[def.key];
+      if (inner !== undefined && !isPlainObject(inner)) throw new RequestBodyError(`"${def.key}" must be an object`);
+      record = { ...((inner as Record<string, unknown> | undefined) ?? body) };
+      const id = record.id;
+      if (id == null || id === "" || !ID_PATTERN.test(String(id))) {
+        throw new RequestBodyError(`Missing or invalid ${def.key} id`);
+      }
+      record.id = /^\d+$/.test(String(id)) ? Number(id) : id;
+    } catch (error) {
+      if (error instanceof RequestBodyError) return jsonError(400, "invalid_body", error.message);
+      throw error;
+    }
+    return forward(request, { method: "POST", path: def.upstream, postBody: { [def.key]: record } });
+  }
+
+  function acceptsType(type: string, accept: string[]): boolean {
+    const t = type.toLowerCase().split(";")[0].trim();
+    return accept.some((a) => {
+      const rule = a.toLowerCase();
+      return rule.endsWith("/") ? t.startsWith(rule) : t === rule;
+    });
+  }
+
+  async function uploadFile(request: Request, options: UploadOptions): Promise<Response> {
+    const maxBytes = options.maxBytes ?? 10 * 1024 * 1024;
+    const accept = options.accept ?? ["image/"];
+
+    // Reject obviously oversized bodies before reading them.
+    const declared = Number(request.headers.get("content-length") ?? 0);
+    if (declared > maxBytes + 64 * 1024) return jsonError(413, "too_large", `The file is larger than ${maxBytes} bytes`);
+
+    let form: FormData;
+    try {
+      form = await request.formData();
+    } catch {
+      return jsonError(400, "invalid_body", "Expected a multipart/form-data body");
+    }
+    const file = form.get(SHOPWAVE_UPLOAD.fileField);
+    if (!file || typeof file === "string" || file.size === 0) {
+      return jsonError(400, "invalid_body", `Missing "${SHOPWAVE_UPLOAD.fileField}"`);
+    }
+    const kind = form.get(SHOPWAVE_UPLOAD.kindField);
+    if (!isUploadKind(kind)) {
+      return jsonError(400, "invalid_body", `"${SHOPWAVE_UPLOAD.kindField}" must be one of ${Object.keys(UPLOAD_KINDS).join(", ")}`);
+    }
+    if (file.size > maxBytes) return jsonError(413, "too_large", `The file is larger than ${maxBytes} bytes`);
+    if (!acceptsType(file.type || "", accept)) return jsonError(415, "unsupported_type", `Files of type "${file.type || "unknown"}" aren't accepted`);
+
+    const upstreamForm = new FormData();
+    upstreamForm.append(SHOPWAVE_UPLOAD.fileField, file, (file as File).name || "upload");
+    return forward(request, {
+      method: "PUT",
+      path: SHOPWAVE_UPLOAD.upstream,
+      headers: { [SHOPWAVE_UPLOAD.kindHeader]: UPLOAD_KINDS[kind] },
+      formData: upstreamForm,
+      forwardExtras: false,
+    });
+  }
+
   function badId(): Response {
     return jsonError(400, "invalid_id", "Missing or invalid id");
   }
@@ -463,6 +584,20 @@ export function createShopwaveApiHandlers(config: ShopwaveApiConfig): ShopwaveAp
 
     passthrough(path) {
       return { GET: (request) => forward(request, { path }) };
+    },
+
+    resource(kind) {
+      const def = resourceDef(kind);
+      const save: RouteHandler = (request) => writeResource(request, def);
+      return {
+        GET: (request) => forward(request, { path: def.upstream }),
+        PUT: save,
+        POST: save,
+      };
+    },
+
+    upload(options = {}) {
+      return { POST: (request) => uploadFile(request, options) };
     },
   };
 }

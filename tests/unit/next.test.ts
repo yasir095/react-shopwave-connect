@@ -386,4 +386,25 @@ describe("createShopwaveApi", () => {
     expect(res.status).toBe(401);
     expect(upstream).not.toHaveBeenCalled();
   });
+
+  it("serves the merchant, user and upload routes with the session token", async () => {
+    await seedToken({ accessToken: "tok", refreshToken: "r1", tokenType: "OAuth", expiresAt: Date.now() + 60_000 });
+    const upstream = vi.fn(async () => new Response(JSON.stringify({ merchant: { id: 1 } }), { status: 200 }));
+    const shopwave = createShopwaveApi({ auth: makeAuth(), apiUrl: "https://api.example.com", fetch: upstream as unknown as typeof fetch });
+
+    await shopwave.resource("merchant").GET(new Request(`${APP}/api/merchant`));
+    await shopwave.resource("user").GET(new Request(`${APP}/api/user`));
+    const form = new FormData();
+    form.append("file", new File([new Uint8Array(3)], "a.png", { type: "image/png" }));
+    form.append("kind", "merchant");
+    await shopwave.upload().POST(new Request(`${APP}/api/upload`, { method: "POST", body: form }));
+
+    const calls = upstream.mock.calls as unknown as Array<[string, RequestInit]>;
+    expect(calls.map(([url, init]) => `${init.method} ${url}`)).toEqual([
+      "GET https://api.example.com/merchant",
+      "GET https://api.example.com/user",
+      "PUT https://api.example.com/uploader",
+    ]);
+    for (const [, init] of calls) expect(new Headers(init.headers).get("authorization")).toBe("OAuth tok");
+  });
 });
