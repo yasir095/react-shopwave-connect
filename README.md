@@ -161,6 +161,7 @@ How they behave (matches what the Shopwave API does):
 - **Promotions:** Shopwave has no promotion DELETE; `deletePromotion` (and `DELETE /api/promotions/:id`) ends the promotion by setting `endDate` to now.
 - **Employees:** Shopwave has no employee DELETE, so `deleteEmployee` (and `DELETE /api/employees/:id`) retires the employee by setting `exitDate`. Updating an existing employee only changes `roleId`, `joinedDate` and `exitDate` — names and email are fixed — and the echo carries only those fields, so re-read with `fetchEmployee` if you need the stored record.
 - **Consumers** are read-only (`GET /consumer` by `ids`); their write/delete routes answer 405.
+- **Product prices (instances) can't be updated** — the API keeps them for history; a price change means a new instance with a new id. Build `instances` with `toProductInstancesForSave(formInstances, productAsLastRead)`: it keys them `"0"…"n"`, keeps an instance's `id` only when the original has that id with the same price and tax, and drops it otherwise (and drops server `timestamp`). `findRepricedInstances(formInstances, productAsLastRead)` lists the instances that will get new ids, so you can warn first. `saveProduct` without an `id` (a new product or a duplicate) always strips instance ids, so a copy can't point at the original's prices.
 - Errors are read from `api.message.errors` and also `api.message.error` (the name used in the [API reference](https://developer.merchantstack.com/api-reference.html)).
 
 The generic forms are `saveEntity(kind, item)`, `deleteEntityById(kind, id)` and `fetchEntityById(kind, id)`; `SHOPWAVE_ENTITIES` lists each entity's route, collection key, Shopwave path and id headers.
@@ -225,7 +226,7 @@ The shapes below are the ones adminV1 saves and adminV2 reads, so all three admi
 | category  | `fetchCategories`, `fetchCategory`, `saveCategory`, `deleteCategory` |
 | consumer  | `fetchConsumers`, `fetchConsumer` (read-only)            |
 | employee  | `fetchEmployees`, `fetchEmployee`, `saveEmployee`, `deleteEmployee` |
-| product   | `fetchProducts`, `fetchProductsMap` (batched, keyed), `fetchProduct`, `saveProduct`, `deleteProduct` |
+| product   | `fetchProducts`, `fetchProductsMap` (batched, keyed), `fetchProduct`, `saveProduct`, `deleteProduct`; prices `toProductInstancesForSave`, `findRepricedInstances`, `isSameInstancePrice` |
 | promotion | `fetchPromotions`, `fetchPromotion`, `savePromotion`, `deletePromotion` |
 | store     | `fetchStores` (now with `storeIds`), `fetchStore`, `saveStore`, `deleteStore` |
 | report    | `fetchReport`                                           |

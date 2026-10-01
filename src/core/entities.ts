@@ -1,6 +1,6 @@
 import { apiDelete, apiGet, apiRequest, type RequestOptions } from "./request";
 import { ShopwaveApiError, assertNoApiErrors } from "./errors";
-import type { Product } from "./product";
+import { toProductInstancesForSave, type Product, type ProductSaveInput } from "./product";
 import type { Category } from "./category";
 import type { Store } from "./store";
 import type { Promotion } from "./promotion";
@@ -192,8 +192,20 @@ export async function fetchEntityById<K extends EntityKind>(
 // Typed per-entity functions
 // ---------------------------------------------------------------------------
 
-export const saveProduct = (product: EntityInput<Product>, options?: RequestOptions) =>
-  saveEntity("product", product, options);
+/**
+ * Creates (no `id`) or updates (with `id`) a product.
+ *
+ * Shopwave instances (prices) can't be updated, only replaced. Build
+ * `instances` with {@link toProductInstancesForSave} (passing the product as last
+ * read) so an edited price is sent as a new instance. As a safeguard, a new
+ * product (no `id`, e.g. a duplicate) never sends instance ids: an id copied from
+ * another product would otherwise point the save at that product's instances.
+ */
+export const saveProduct = (product: ProductSaveInput, options?: RequestOptions) => {
+  const isNew = product.id == null || String(product.id).trim() === "";
+  const toSave = isNew && product.instances != null ? { ...product, instances: toProductInstancesForSave(product.instances) } : product;
+  return saveEntity("product", toSave as EntityInput<Product>, options);
+};
 export const deleteProduct = (id: EntityId, options?: RequestOptions) => deleteEntityById("product", id, options);
 export const fetchProduct = (id: EntityId, params?: FetchByIdParams, options?: RequestOptions) =>
   fetchEntityById("product", id, params, options);

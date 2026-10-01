@@ -1,6 +1,6 @@
 {
   "name": "react-shopwave-connect",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Shopwave API client: framework-agnostic core, React hooks, and server-side OAuth (with a Next.js adapter).",
   "author": "Yasir",
   "license": "MIT",
