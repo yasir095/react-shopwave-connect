@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   createShopwaveApiHandlers,
   normalizeWriteBody,
@@ -314,19 +314,93 @@ describe("item routes", () => {
     }
   });
 
-  it("promotions: DELETE ends the promotion by POSTing endDate (the API has no promotion DELETE)", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-09-28T16:40:00.000Z"));
-    try {
-      replies = [json({ promotions: { 0: { id: 8 } } }, 201)];
-      const res = await api().item("promotion").DELETE(req("/api/promotions/8", { method: "DELETE" }), ctx("8"));
+  describe("promotions: DELETE expires the promotion (never deleted; the API rejects a partial save)", () => {
+    // As the live API returns it (14 Oct 2026): dates as ISO with Z.
+    const promotion = (startDate: string, endDate: string) => ({
+      id: 8,
+      merchantId: 5644,
+      storeIds: [6341],
+      categoryIds: { "16320": 2 },
+      productIds: {},
+      title: "Lunch deal",
+      details: null,
+      terms: null,
+      startDate,
+      endDate,
+      daysAvailable: [0, 1, 2, 3, 4, 5, 6],
+      automatic: 0,
+      rule: "&=^/",
+      x: 1000,
+      y: null,
+    });
+    const expire = () => api().item("promotion").DELETE(req("/api/promotions/8", { method: "DELETE", extras: { promotionIds: 99 } }), ctx("8"));
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-10-14T16:29:37.456Z"));
+    });
+    afterEach(() => vi.useRealTimers());
+
+    it("a started promotion: reads it, then saves the whole record back with endDate = now and the start kept", async () => {
+      replies = [
+        json({ promotions: { 8: promotion("2026-10-14T15:00:00.000Z", "2026-10-31T23:59:00.000Z") } }),
+        json({ promotions: { 0: { id: 8 } } }, 201),
+      ];
+      const res = await expire();
       expect(res.status).toBe(201);
-      expect(upstream[0].method).toBe("POST");
+      expect(upstream).toHaveLength(2);
+      expect(upstream[0].method).toBe("GET");
       expect(upstream[0].url).toBe("https://api.example.com/promotion");
-      expect(postBodyOf(upstream[0])).toEqual({ promotions: { 0: { id: 8, endDate: "2026-09-28 16:40:00" } } });
-    } finally {
-      vi.useRealTimers();
-    }
+      expect(upstream[0].headers.get("promotionIds")).toBe("8");
+      expect(upstream[1].method).toBe("POST");
+      expect(upstream[1].url).toBe("https://api.example.com/promotion");
+      expect(postBodyOf(upstream[1])).toEqual({
+        promotions: { 0: { ...promotion("2026-10-14 15:00:00", "2026-10-14 16:29:37") } },
+      });
+    });
+
+    it("a promotion that hasn't started: start and end both become now", async () => {
+      replies = [
+        json({ promotions: { 8: promotion("2026-10-21T09:00:00.000Z", "2026-10-21T17:00:00.000Z") } }),
+        json({ promotions: { 0: { id: 8 } } }, 201),
+      ];
+      await expire();
+      const saved = postBodyOf(upstream[1]).promotions[0];
+      expect(saved.startDate).toBe("2026-10-14 16:29:37");
+      expect(saved.endDate).toBe("2026-10-14 16:29:37");
+    });
+
+    it("reads a zoneless start as UTC", async () => {
+      replies = [
+        json({ promotions: { 0: promotion("2026-10-14 16:30:00", "2026-10-20 00:00:00") } }),
+        json({ promotions: { 0: { id: 8 } } }, 201),
+      ];
+      await expire();
+      // 16:30 UTC is after now (16:29:37 UTC), so it hasn't started: start moves to now.
+      expect(postBodyOf(upstream[1]).promotions[0].startDate).toBe("2026-10-14 16:29:37");
+    });
+
+    it("no such promotion: 404 and nothing is saved", async () => {
+      replies = [json({ promotions: {}, api: { message: {} } })];
+      const res = await expire();
+      expect(res.status).toBe(404);
+      expect(upstream).toHaveLength(1);
+    });
+
+    it("a failed read is passed through and nothing is saved", async () => {
+      replies = [json({ api: { message: { errors: { 899: { id: 899 } } } } }, 500)];
+      const res = await expire();
+      expect(res.status).toBe(500);
+      expect(upstream).toHaveLength(1);
+    });
+
+    it("the save's failure is passed through", async () => {
+      replies = [
+        json({ promotions: { 8: promotion("2026-10-14T15:00:00.000Z", "2026-10-31T23:59:00.000Z") } }),
+        json({ api: { message: { errors: { 899: { id: 899 } } } } }, 500),
+      ];
+      expect((await expire()).status).toBe(500);
+    });
   });
 
   it("consumers are read-only: writes and deletes answer 405 without calling the API", async () => {

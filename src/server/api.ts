@@ -328,6 +328,19 @@ export function shopwaveDateTime(date: Date = new Date()): string {
   return date.toISOString().slice(0, 19).replace("T", " ");
 }
 
+/**
+ * Reads a Shopwave datetime: ISO with a zone (what reads return, e.g.
+ * `2026-10-20T16:00:00.000Z`) or a zoneless `YYYY-MM-DD HH:mm:ss`, which is UTC.
+ * `null` when the value isn't a date.
+ */
+function parseShopwaveDateTime(value: unknown): Date | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const text = value.trim();
+  const zoneless = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(text);
+  const date = new Date(zoneless ? `${text.replace(" ", "T")}Z` : text);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 const NULL_BODY_STATUS = new Set([101, 103, 204, 205, 304]);
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
@@ -535,6 +548,42 @@ export function createShopwaveApiHandlers(config: ShopwaveApiConfig): ShopwaveAp
     return jsonError(400, "invalid_id", "Missing or invalid id");
   }
 
+  /**
+   * Retires a record the API won't take a partial save for (promotions): reads it,
+   * sets `field` to now (and `def.retireStartField` to now too when the record
+   * hasn't started yet), and POSTs the whole record back. Both dates are sent as
+   * UTC `YYYY-MM-DD HH:mm:ss`; reads return them as ISO with `Z`.
+   */
+  async function retireWithRecord(request: Request, def: EntityDefinition, id: string, field: string): Promise<Response> {
+    const read = await forward(request, { path: def.upstream, headers: { [def.idsHeader]: id }, forwardExtras: false });
+    if (!read.ok) return read;
+    let body: unknown;
+    try {
+      body = await read.json();
+    } catch {
+      return jsonError(502, "invalid_upstream", `The Shopwave API's ${def.upstream} read wasn't JSON`);
+    }
+    const map = isPlainObject(body) && isPlainObject(body[def.collection]) ? body[def.collection] : {};
+    const record = Object.values(map as Record<string, unknown>).find(
+      (entry): entry is Record<string, unknown> => isPlainObject(entry) && String(entry.id) === id
+    );
+    if (!record) return jsonError(404, "not_found", `No ${def.upstream} with id ${id}`);
+
+    const now = new Date();
+    const retired: Record<string, unknown> = { ...record, [field]: shopwaveDateTime(now) };
+    const startField = def.retireStartField;
+    if (startField) {
+      const start = parseShopwaveDateTime(record[startField]);
+      if (start) retired[startField] = shopwaveDateTime(start > now ? now : start);
+    }
+    return forward(request, {
+      method: "POST",
+      path: def.upstream,
+      postBody: { [def.collection]: { 0: retired } },
+      forwardExtras: false,
+    });
+  }
+
   return {
     forward,
     entity,
@@ -570,6 +619,7 @@ export function createShopwaveApiHandlers(config: ShopwaveApiConfig): ShopwaveAp
           if (def.deleteMode === "retire") {
             // No DELETE upstream (employees, promotions): set the end date to now.
             const field = def.retireField ?? "exitDate";
+            if (def.retireWithRecord) return retireWithRecord(request, def, id, field);
             return forward(request, {
               method: "POST",
               path: def.upstream,

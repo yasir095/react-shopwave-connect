@@ -149,7 +149,7 @@ await deleteCategory(created.id);
 | product   | `saveProduct`, `deleteProduct`, `fetchProduct`             | `/api/products[/:id]`         |
 | category  | `saveCategory`, `deleteCategory`, `fetchCategory`          | `/api/categories[/:id]`       |
 | store     | `saveStore`, `deleteStore`, `fetchStore`                   | `/api/stores[/:id]`           |
-| promotion | `savePromotion`, `deletePromotion` (ends it), `fetchPromotion` | `/api/promotions[/:id]`       |
+| promotion | `savePromotion`, `deletePromotion` (expires it), `fetchPromotion` | `/api/promotions[/:id]`       |
 | employee  | `saveEmployee`, `deleteEmployee` (retires), `fetchEmployee` | `/api/employees[/:id]`        |
 | consumer  | `fetchConsumer` only — read-only in the API                | `/api/consumer[/:id]` (GET)   |
 
@@ -158,7 +158,7 @@ How they behave (matches what the Shopwave API does):
 - **Save** sends `{ <collection>: { "0": entity } }`. Shopwave upserts (an `id` means update), answers **201** and echoes the entity under the same ref with its `id` and server fields. The function checks `api.message.errors` and that the ref came back, and returns the saved entity (fields the echo leaves out are kept from your input). `saveEntities(kind, [a, b])` saves several at once and matches results back by ref.
 - **Delete** is a soft delete (read it back with `deleted: true`). Shopwave answers **205 with an empty body — also for ids that don't exist**, so a resolved promise means "accepted", not "a record was deleted".
 - **Read one** calls `GET /api/<route>/:id` and returns the record or `null`. List reads return `[]` when nothing matches (Shopwave answers with an empty body).
-- **Promotions:** Shopwave has no promotion DELETE; `deletePromotion` (and `DELETE /api/promotions/:id`) ends the promotion by setting `endDate` to now.
+- **Promotions:** promotions are never deleted, only expired. `deletePromotion` (and `DELETE /api/promotions/:id`) reads the promotion and saves the whole record back with `endDate` set to now; one that hasn't started yet gets `startDate` = `endDate` = now. (The API rejects a partial `{ id, endDate }` save with error 899.) Dates go as UTC `YYYY-MM-DD HH:mm:ss`.
 - **Employees:** Shopwave has no employee DELETE, so `deleteEmployee` (and `DELETE /api/employees/:id`) retires the employee by setting `exitDate`. Updating an existing employee only changes `roleId`, `joinedDate` and `exitDate` — names and email are fixed — and the echo carries only those fields, so re-read with `fetchEmployee` if you need the stored record.
 - **Consumers** are read-only (`GET /consumer` by `ids`); their write/delete routes answer 405.
 - **Product prices (instances) can't be updated** — the API keeps them for history; a price change means a new instance with a new id. Build `instances` with `toProductInstancesForSave(formInstances, productAsLastRead)`: it keys them `"0"…"n"`, keeps an instance's `id` only when the original has that id with the same price and tax, and drops it otherwise (and drops server `timestamp`). `findRepricedInstances(formInstances, productAsLastRead)` lists the instances that will get new ids, so you can warn first. `saveProduct` without an `id` (a new product or a duplicate) always strips instance ids, so a copy can't point at the original's prices.
@@ -472,7 +472,7 @@ export const { POST } = shopwave.upload();              // or upload({ maxBytes,
 - `resource("merchant")`: `PUT`/`POST` take `{ merchant: {…} }` or the bare object and send every field on as `postBody`. The `id` is required (400 without it), because a POST without one would create a second merchant. `resource("user")` answers 405 to writes.
 - `upload()`: takes multipart `file` + `kind`, checks the size (default 10 MB → 413) and type (default `image/*` → 415), and `PUT`s only the file to `/uploader` with the `contentType` header. `extras` are ignored on uploads. Shopwave's reply (201 `{ fileName, path }`) is passed through.
 
-Entities: `product`, `category`, `store`, `promotion`, `employee` (DELETE retires via `exitDate`), `promotion` (DELETE ends it via `endDate`), `consumer` (mounted at `/api/consumer`; GET only, writes answer 405). For anything else, `shopwave.forward(request, { method, path, headers, postBody })` does the same token/refresh/encoding work for a custom handler.
+Entities: `product`, `category`, `store`, `promotion`, `employee` (DELETE retires via `exitDate`), `promotion` (DELETE expires it: the whole record saved back with `endDate`, and a not-yet-started `startDate`, set to now), `consumer` (mounted at `/api/consumer`; GET only, writes answer 405). For anything else, `shopwave.forward(request, { method, path, headers, postBody })` does the same token/refresh/encoding work for a custom handler.
 
 Every handler:
 

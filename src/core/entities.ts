@@ -28,13 +28,25 @@ export interface EntityDefinition {
   /**
    * How a delete is done upstream:
    * - `"delete"`: `DELETE {apiUrl}/<upstream>` with the `idHeader` (205, empty body)
-   * - `"retire"`: the API has no DELETE; the record is retired by POSTing
-   *   `{ id, [retireField]: <now> }` (employees: `exitDate`, promotions: `endDate`)
+   * - `"retire"`: the API has no DELETE; the record is retired by setting
+   *   `retireField` to now (employees: `exitDate`, promotions: `endDate`)
    * - `"none"`: can't be deleted
    */
   deleteMode: "delete" | "retire" | "none";
   /** Date field set to "now" when `deleteMode` is `"retire"`. */
   retireField?: string;
+  /**
+   * Retire by reading the record and POSTing all of it back with the date(s)
+   * changed, instead of a partial `{ id, [retireField]: <now> }`. Needed where
+   * the API rejects a partial save (promotions: error 899, live 14 Oct 2026).
+   */
+  retireWithRecord?: boolean;
+  /**
+   * Start-date field of a record retired with `retireWithRecord`. If the record
+   * hasn't started yet (start after now), the start moves to now as well, so
+   * start = end and the record is expired without ever running.
+   */
+  retireStartField?: string;
 }
 
 export type EntityKind = "product" | "category" | "store" | "promotion" | "employee" | "consumer";
@@ -50,7 +62,10 @@ export type DeletableEntityKind = Exclude<EntityKind, "consumer">;
  * (https://developer.merchantstack.com/api-reference.html) and checked against
  * the live API where noted:
  * - category/product/store: GET filtered by `<x>Ids`, POST upsert, DELETE with `<x>Id` → 205.
- * - promotion: no DELETE; "deleting" a promotion ends it by setting `endDate` to now.
+ * - promotion: no DELETE; promotions are never deleted, only expired. Expiring
+ *   reads the promotion and saves the whole record back with `endDate` = now (and
+ *   `startDate` = now too if it hadn't started); the live API rejects a partial
+ *   `{ id, endDate }` save with error 899. Dates are UTC `YYYY-MM-DD HH:mm:ss`.
  * - employee: POST updates `roleId`, `joinedDate`, `exitDate` (names can't be
  *   changed); no DELETE (live API: "Cannot DELETE /employee") → retired via `exitDate`.
  * - consumer: read-only (`GET` with `ids`, comma-separated); live POST → 404.
@@ -59,7 +74,7 @@ export const SHOPWAVE_ENTITIES: Readonly<Record<EntityKind, EntityDefinition>> =
   product: { route: "products", collection: "products", upstream: "product", idsHeader: "productIds", idHeader: "productId", writable: true, deleteMode: "delete" },
   category: { route: "categories", collection: "categories", upstream: "category", idsHeader: "categoryIds", idHeader: "categoryId", writable: true, deleteMode: "delete" },
   store: { route: "stores", collection: "stores", upstream: "store", idsHeader: "storeIds", idHeader: "storeId", writable: true, deleteMode: "delete" },
-  promotion: { route: "promotions", collection: "promotions", upstream: "promotion", idsHeader: "promotionIds", idHeader: "promotionId", writable: true, deleteMode: "retire", retireField: "endDate" },
+  promotion: { route: "promotions", collection: "promotions", upstream: "promotion", idsHeader: "promotionIds", idHeader: "promotionId", writable: true, deleteMode: "retire", retireField: "endDate", retireWithRecord: true, retireStartField: "startDate" },
   employee: { route: "employees", collection: "employees", upstream: "employee", idsHeader: "employeeIds", idHeader: "employeeId", writable: true, deleteMode: "retire", retireField: "exitDate" },
   consumer: { route: "consumer", collection: "consumers", upstream: "consumer", idsHeader: "ids", idHeader: "consumerId", writable: false, deleteMode: "none" },
 });
@@ -154,7 +169,8 @@ export async function saveEntity<K extends WritableEntityKind>(
 /**
  * Deletes one entity (a soft delete: it stays readable with `deleted: true`).
  * Employees and promotions can't be deleted in Shopwave; for them the route
- * sets `exitDate` / `endDate` to now instead (see `SHOPWAVE_ENTITIES`).
+ * sets `exitDate` / `endDate` to now instead (see `SHOPWAVE_ENTITIES`), and a
+ * promotion is saved back whole (see {@link deletePromotion}).
  *
  * Shopwave answers 205 with an empty body — also for ids that don't exist — so
  * a resolved promise means "the API accepted the request", not "a record was
@@ -223,7 +239,12 @@ export const fetchStore = (id: EntityId, params?: FetchByIdParams, options?: Req
 
 export const savePromotion = (promotion: EntityInput<Promotion>, options?: RequestOptions) =>
   saveEntity("promotion", promotion, options);
-/** Ends a promotion: Shopwave has no promotion DELETE, so this sets `endDate` to now. */
+/**
+ * Expires a promotion (Shopwave never deletes promotions). The route reads the
+ * promotion and saves it back with `endDate` set to now; a promotion that hasn't
+ * started yet gets `startDate` = `endDate` = now. Rejects if the promotion doesn't
+ * exist or the save fails.
+ */
 export const deletePromotion = (id: EntityId, options?: RequestOptions) => deleteEntityById("promotion", id, options);
 export const fetchPromotion = (id: EntityId, params?: FetchByIdParams, options?: RequestOptions) =>
   fetchEntityById("promotion", id, params, options);
