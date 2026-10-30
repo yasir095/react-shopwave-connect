@@ -36,7 +36,7 @@ export type { SessionStatus } from "../core/session";
 export type { ShopwaveToken } from "../server/token";
 export { ShopwaveAuthError } from "../server/errors";
 export { isExpiredTokenResponse, authorizationHeader } from "../server/token";
-export { readRequestToken, SHOPWAVE_ENTITIES, SHOPWAVE_RESOURCES, UPLOAD_KINDS } from "../server";
+export { readRequestToken, SHOPWAVE_ENTITIES, SHOPWAVE_LOOKUPS, SHOPWAVE_RESOURCES, UPLOAD_KINDS } from "../server";
 export type {
   ShopwaveApiHandlers,
   CollectionHandlers,
@@ -45,6 +45,7 @@ export type {
   UploadHandlers,
   UploadOptions,
   ResourceKind,
+  LookupKind,
   UploadKind,
   RouteContext,
   RouteHandler,
@@ -573,6 +574,9 @@ export interface ShopwaveNextApiConfig extends Omit<ShopwaveApiConfig, "getAutho
  * export const { GET } = shopwave.resource("user");
  * // app/api/upload/route.ts
  * export const { POST } = shopwave.upload();
+ * // app/api/products/tags/route.ts, app/api/products/instance-tags/route.ts
+ * export const { GET } = shopwave.lookup("productTags");
+ * export const { GET } = shopwave.lookup("productInstanceTags");
  * ```
  */
 export function createShopwaveApi(config: ShopwaveNextApiConfig): ShopwaveApiHandlers {

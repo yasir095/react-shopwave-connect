@@ -24,11 +24,13 @@ import {
   type EntityKind,
 } from "../core/entities";
 import {
+  SHOPWAVE_LOOKUPS,
   SHOPWAVE_RESOURCES,
   SHOPWAVE_UPLOAD,
   UPLOAD_KINDS,
   isUploadKind,
   type ResourceDefinition,
+  type LookupKind,
   type ResourceKind,
 } from "../core/resources";
 import { isExpiredTokenResponse } from "./token";
@@ -306,6 +308,12 @@ export interface ShopwaveApiHandlers {
   item(kind: EntityKind, options?: { param?: string }): ItemHandlers;
   /** GET-only proxy for a Shopwave path (e.g. `"report"`). */
   passthrough(path: string): { GET: RouteHandler };
+  /**
+   * Handler for a read-only list (see `SHOPWAVE_LOOKUPS`), e.g.
+   * `app/api/products/tags/route.ts`: `export const { GET } = shopwave.lookup("productTags")`.
+   * Takes no parameters, so the caller's `extras` aren't forwarded.
+   */
+  lookup(kind: LookupKind): { GET: RouteHandler };
   /** Handlers for a singleton resource: `app/api/merchant/route.ts`, `app/api/user/route.ts`. */
   resource(kind: ResourceKind): ResourceHandlers;
   /** Handler for `app/api/upload/route.ts`. */
@@ -634,6 +642,12 @@ export function createShopwaveApiHandlers(config: ShopwaveApiConfig): ShopwaveAp
 
     passthrough(path) {
       return { GET: (request) => forward(request, { path }) };
+    },
+
+    lookup(kind) {
+      const def = SHOPWAVE_LOOKUPS[kind];
+      if (!def) throw new Error(`Unknown Shopwave lookup "${kind}"`);
+      return { GET: (request) => forward(request, { path: def.upstream, forwardExtras: false }) };
     },
 
     resource(kind) {

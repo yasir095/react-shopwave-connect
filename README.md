@@ -226,7 +226,7 @@ The shapes below are the ones adminV1 saves and adminV2 reads, so all three admi
 | category  | `fetchCategories`, `fetchCategory`, `saveCategory`, `deleteCategory` |
 | consumer  | `fetchConsumers`, `fetchConsumer` (read-only)            |
 | employee  | `fetchEmployees`, `fetchEmployee`, `saveEmployee`, `deleteEmployee` |
-| product   | `fetchProducts`, `fetchProductsMap` (batched, keyed), `fetchProduct`, `saveProduct`, `deleteProduct`; prices `toProductInstancesForSave`, `findRepricedInstances`, `isSameInstancePrice` |
+| product   | `fetchProducts`, `fetchProductsMap` (batched, keyed), `fetchProduct`, `saveProduct`, `deleteProduct`; prices `toProductInstancesForSave`, `findRepricedInstances`, `isSameInstancePrice`; tag lists `fetchProductTags`, `fetchProductInstanceTags` (`string[]`), `normalizeTagList` |
 | promotion | `fetchPromotions`, `fetchPromotion`, `savePromotion`, `deletePromotion` |
 | store     | `fetchStores` (now with `storeIds`), `fetchStore`, `saveStore`, `deleteStore` |
 | report    | `fetchReport`                                           |
@@ -281,7 +281,7 @@ const { data } = useProduct({ storeId }, { baseUrl: "https://api.merchantstack.c
 
 ### Auto-fetch hooks (`useEffect`-based)
 
-`useCategory`, `useConsumer`, `useEmployee`, `useProduct`, `usePromotion`, `useStore`, `useReport`, `useSession`, `useMerchant`, `useUser` (`useUser({ enabled: false })` stays idle).
+`useCategory`, `useConsumer`, `useEmployee`, `useProduct`, `useProductTags`, `useProductInstanceTags`, `usePromotion`, `useStore`, `useReport`, `useSession`, `useMerchant`, `useUser` (`useUser({ enabled: false })` stays idle; so do the tag hooks, so a tag field can load its list the first time it opens).
 They fetch on mount and re-run when their arguments change. `useConsumer` and `useReport` stay idle until you pass ids / a query (they return `loading: false`, `data: null` until then). `refetch()` replaces the old `reloadFlag` argument.
 
 ### Manually-triggered hooks (`useCallback`-based)
@@ -467,7 +467,14 @@ export const { GET } = shopwave.resource("user");
 
 // app/api/upload/route.ts         — image upload (uploadImage)
 export const { POST } = shopwave.upload();              // or upload({ maxBytes, accept })
+
+// app/api/products/tags/route.ts           — the merchant's product tags (fetchProductTags)
+export const { GET } = shopwave.lookup("productTags");
+// app/api/products/instance-tags/route.ts  — price-instance (channel) tags (fetchProductInstanceTags)
+export const { GET } = shopwave.lookup("productInstanceTags");
 ```
+
+- `lookup(kind)`: the read-only lists in `SHOPWAVE_LOOKUPS`. `productTags` → `GET /product/tags`, `productInstanceTags` → `GET /product/instance/tags`; both answer `{ tags: string[] }`. They take no parameters, so `extras` aren't forwarded. The app routes are `products/tags` and `products/instance-tags`: static segments, so they sit beside `products/[id]`.
 
 - `resource("merchant")`: `PUT`/`POST` take `{ merchant: {…} }` or the bare object and send every field on as `postBody`. The `id` is required (400 without it), because a POST without one would create a second merchant. `resource("user")` answers 405 to writes.
 - `upload()`: takes multipart `file` + `kind`, checks the size (default 10 MB → 413) and type (default `image/*` → 415), and `PUT`s only the file to `/uploader` with the `contentType` header. `extras` are ignored on uploads. Shopwave's reply (201 `{ fileName, path }`) is passed through.
@@ -502,6 +509,11 @@ Options: `apiVersion` (default `"2.0"`), `fetch`, `entities` (override a route/h
 - `core.logout()` / `useLogout()` still work (`DELETE /api/session`), but prefer linking to `logoutPath()` so the auth-server session ends too.
 
 ---
+
+## Contributing
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how the package is built and the rules for changing it: layers, request flow, contract tables, endpoint kinds (and how to choose one), a checklist for adding an endpoint, code rules, known gaps, and versioning.
+- [CLAUDE.md](CLAUDE.md): the short rules for coding agents working in this repo.
 
 ## Build
 

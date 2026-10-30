@@ -1,5 +1,5 @@
 /**
- * @shopwave/sdk — hooks layer.
+ * react-shopwave-connect/hooks — hooks layer.
  *
  * Thin React wrappers around the `core` API functions. Every hook imports its
  * logic from `core`; none of it is duplicated here. React / react-dom are peer
@@ -12,6 +12,7 @@ export { useCategory } from "./useCategory";
 export { useConsumer } from "./useConsumer";
 export { useEmployee } from "./useEmployee";
 export { useProduct } from "./useProduct";
+export { useProductTags, useProductInstanceTags } from "./useProductTags";
 export { usePromotion } from "./usePromotion";
 export { useStore } from "./useStore";
 export { useReport } from "./useReport";

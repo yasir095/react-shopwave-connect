@@ -51,5 +51,5 @@ export type {
 
 export { SHOPWAVE_ENTITIES } from "../core/entities";
 export type { EntityDefinition, EntityKind, WritableEntityKind, DeletableEntityKind } from "../core/entities";
-export { SHOPWAVE_RESOURCES, SHOPWAVE_UPLOAD, UPLOAD_KINDS } from "../core/resources";
-export type { ResourceDefinition, ResourceKind, UploadKind } from "../core/resources";
+export { SHOPWAVE_LOOKUPS, SHOPWAVE_RESOURCES, SHOPWAVE_UPLOAD, UPLOAD_KINDS } from "../core/resources";
+export type { LookupDefinition, LookupKind, ResourceDefinition, ResourceKind, UploadKind } from "../core/resources";

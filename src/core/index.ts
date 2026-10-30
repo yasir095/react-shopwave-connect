@@ -1,5 +1,5 @@
 /**
- * @shopwave/sdk — core layer.
+ * react-shopwave-connect/core — core layer.
  *
  * Framework-agnostic API client. No React imports anywhere in this layer, so it
  * runs in any TS/JS environment (Node, Vue, Angular, CLI, ...).
@@ -13,6 +13,7 @@ export * from "./category";
 export * from "./consumer";
 export * from "./employee";
 export * from "./product";
+export * from "./productTags";
 export * from "./promotion";
 export * from "./store";
 export * from "./report";
