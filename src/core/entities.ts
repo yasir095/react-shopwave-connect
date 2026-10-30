@@ -9,8 +9,9 @@ import type { Consumer } from "./consumer";
 
 /**
  * How each Shopwave entity is addressed, shared by the client functions below
- * and the server route handlers in `react-shopwave-connect/next`, so the two
- * halves of the contract can't drift apart.
+ * and the server route handlers in `react-shopwave-connect/server` (wrapped with
+ * the session by `react-shopwave-connect/next`), so the two halves of the
+ * contract can't drift apart.
  */
 export interface EntityDefinition {
   /** App route segment: `/api/<route>` and `/api/<route>/<id>`. */

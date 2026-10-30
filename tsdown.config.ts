@@ -1,7 +1,7 @@
 import { defineConfig } from "tsdown";
 
 /**
- * Two clearly separated build entries:
+ * Five build entries, one per import path. The client layers:
  *
  *  - `core`  : framework-agnostic API client. No React anywhere, so nothing
  *              needs to be marked external.
