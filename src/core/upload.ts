@@ -1,10 +1,16 @@
 import { apiRequest, type RequestOptions } from "./request";
 import { ShopwaveApiError, assertNoApiErrors } from "./errors";
-import { SHOPWAVE_UPLOAD, isUploadKind, type UploadKind } from "./resources";
+import { SHOPWAVE_UPLOAD, isUploadKind, isUploadPrefix, type UploadKind, type UploadPrefix } from "./resources";
 
 export interface UploadImageParams {
   /** What the image is for (sent to Shopwave as the uploader's `contentType`). */
   kind: UploadKind;
+  /**
+   * The image's role (sent to Shopwave as the uploader's `prefix` header), e.g.
+   * `product_thumbnail` for a product's lead image. Leave it out for images
+   * without a role (merchant logos).
+   */
+  prefix?: UploadPrefix;
   /** File name to send when `file` is a Blob without one. Defaults to `File.name`, else `"upload"`. */
   fileName?: string;
 }
@@ -56,11 +62,13 @@ export async function uploadImage(
 ): Promise<UploadedImage> {
   if (!file || typeof (file as Blob).size !== "number") throw new Error("uploadImage: file must be a File or Blob");
   if (!isUploadKind(params?.kind)) throw new Error(`uploadImage: unknown kind "${params?.kind}"`);
+  if (params.prefix != null && !isUploadPrefix(params.prefix)) throw new Error(`uploadImage: unknown prefix "${params.prefix}"`);
 
   const name = params.fileName ?? (file as File).name ?? "upload";
   const form = new FormData();
   form.append(SHOPWAVE_UPLOAD.fileField, file, name);
   form.append(SHOPWAVE_UPLOAD.kindField, params.kind);
+  if (params.prefix != null) form.append(SHOPWAVE_UPLOAD.prefixField, params.prefix);
 
   // No Content-Type: fetch sets the multipart boundary itself.
   const { status, body: raw } = await apiRequest(`/api/${SHOPWAVE_UPLOAD.route}`, { method: "POST", body: form }, options);

@@ -176,6 +176,30 @@ describe("upload()", () => {
     expect(upstream[0].headers.get("contentType")).toBe("applicaionLogo");
   });
 
+  it("sends the image role as the prefix header", async () => {
+    await api().upload().POST(uploadReq({ file: png(), kind: "product", prefix: "product_thumbnail" }));
+    expect(upstream[0].headers.get("contentType")).toBe("product");
+    expect(upstream[0].headers.get("prefix")).toBe("product_thumbnail");
+    expect((upstream[0].body as FormData).get("prefix")).toBeNull(); // only the file goes upstream
+  });
+
+  it("sends no prefix header when the request has none", async () => {
+    await api().upload().POST(uploadReq({ file: png(), kind: "merchant" }));
+    expect(upstream[0].headers.has("prefix")).toBe(false);
+  });
+
+  it("answers 400 for an unknown prefix without calling Shopwave", async () => {
+    const res = await api().upload().POST(uploadReq({ file: png(), kind: "product", prefix: "../logo" }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).message).toMatch(/product_thumbnail, variant_thumbnail, product, variant/);
+    expect(upstream).toHaveLength(0);
+  });
+
+  it("never forwards a prefix from extras", async () => {
+    await api().upload().POST(uploadReq({ file: png(), kind: "product" }, { extras: JSON.stringify({ prefix: "variant" }) }));
+    expect(upstream[0].headers.has("prefix")).toBe(false);
+  });
+
   it("never forwards extras (callers can't add upstream headers)", async () => {
     await api().upload().POST(uploadReq({ file: png(), kind: "product" }, { extras: JSON.stringify({ contentType: "user", x: "1" }) }));
     expect(upstream[0].headers.get("contentType")).toBe("product");

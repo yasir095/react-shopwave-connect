@@ -58,7 +58,7 @@ Only these, each with a `{ error, message }` body. Don't add one without adding 
 
 | Status | `error` | When |
 |---|---|---|
-| 400 | `invalid_extras`, `invalid_body`, `invalid_id` | Bad `extras` header, write body or route id |
+| 400 | `invalid_extras`, `invalid_body`, `invalid_id` | Bad `extras` header, write body (incl. an upload's kind or prefix) or route id |
 | 401 | `unauthorized` | No token, or the session expired and the refresh gave none |
 | 404 | `not_found` | A promotion to expire doesn't exist |
 | 405 | `method_not_allowed` | A write to a read-only entity or resource; a delete where `deleteMode` is `"none"` |
@@ -99,7 +99,7 @@ and routed.
 | Entity | `SHOPWAVE_ENTITIES` | `collection(kind)`, `item(kind)` | A map by id: `{ products: { "12": {…} } }` | GET, POST/PUT, DELETE |
 | Resource | `SHOPWAVE_RESOURCES` | `resource(kind)` | One object: `{ merchant: {…} }` | GET; PUT/POST when writable |
 | Lookup | `SHOPWAVE_LOOKUPS` | `lookup(kind)` | A list of values: `{ tags: [...] }` | GET |
-| Upload | `SHOPWAVE_UPLOAD`, `UPLOAD_KINDS` | `upload(options)` | `{ fileName, path }` | POST → `PUT /uploader` |
+| Upload | `SHOPWAVE_UPLOAD`, `UPLOAD_KINDS`, `UPLOAD_PREFIXES` | `upload(options)` | `{ fileName, path }` | POST → `PUT /uploader` |
 | Passthrough | none | `passthrough(path)` | Anything | GET |
 | Custom | none | `forward(request, init)` | Anything | Any |
 
@@ -127,6 +127,8 @@ with no parameters, so `extras` aren't forwarded. Their routes are static segmen
 **Upload**: multipart `file` + `kind` to `POST /api/upload`, then `PUT {apiUrl}/uploader` with
 the `contentType` header from `UPLOAD_KINDS`, which maps correct spellings to the API's
 misspelt values (`applicationLogo` → `applicaionLogo`). The defaults are 10 MB and `image/*`.
+An optional `prefix` field (the image's role, `UPLOAD_PREFIXES`) goes upstream as the `prefix`
+header; anything outside the table is 400 `invalid_body`, so a caller can't steer the header.
 
 **Passthrough and `forward`**: `passthrough(path)` proxies one GET path with no table row
 (`report`). `forward` is the building block for a handler none of the factories fit.

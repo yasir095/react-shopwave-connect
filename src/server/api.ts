@@ -28,7 +28,9 @@ import {
   SHOPWAVE_RESOURCES,
   SHOPWAVE_UPLOAD,
   UPLOAD_KINDS,
+  UPLOAD_PREFIXES,
   isUploadKind,
+  isUploadPrefix,
   type ResourceDefinition,
   type LookupKind,
   type ResourceKind,
@@ -292,9 +294,11 @@ export interface UploadOptions {
 
 export interface UploadHandlers {
   /**
-   * Multipart `file` + `kind` (see `UploadKind`) → `PUT {apiUrl}/uploader`.
-   * Answers with Shopwave's reply (201 `{ fileName, path, api }`); 400 for a
-   * missing file or unknown kind, 413 when too large, 415 for other types.
+   * Multipart `file` + `kind` (see `UploadKind`), and optionally `prefix`
+   * (see `UploadPrefix`) → `PUT {apiUrl}/uploader` with the `contentType` and
+   * `prefix` headers. Answers with Shopwave's reply (201 `{ fileName, path, api }`);
+   * 400 for a missing file or an unknown kind or prefix, 413 when too large,
+   * 415 for other types.
    */
   POST: RouteHandler;
 }
@@ -538,6 +542,10 @@ export function createShopwaveApiHandlers(config: ShopwaveApiConfig): ShopwaveAp
     if (!isUploadKind(kind)) {
       return jsonError(400, "invalid_body", `"${SHOPWAVE_UPLOAD.kindField}" must be one of ${Object.keys(UPLOAD_KINDS).join(", ")}`);
     }
+    const prefix = form.get(SHOPWAVE_UPLOAD.prefixField);
+    if (prefix !== null && !isUploadPrefix(prefix)) {
+      return jsonError(400, "invalid_body", `"${SHOPWAVE_UPLOAD.prefixField}" must be one of ${UPLOAD_PREFIXES.join(", ")}`);
+    }
     if (file.size > maxBytes) return jsonError(413, "too_large", `The file is larger than ${maxBytes} bytes`);
     if (!acceptsType(file.type || "", accept)) return jsonError(415, "unsupported_type", `Files of type "${file.type || "unknown"}" aren't accepted`);
 
@@ -546,7 +554,10 @@ export function createShopwaveApiHandlers(config: ShopwaveApiConfig): ShopwaveAp
     return forward(request, {
       method: "PUT",
       path: SHOPWAVE_UPLOAD.upstream,
-      headers: { [SHOPWAVE_UPLOAD.kindHeader]: UPLOAD_KINDS[kind] },
+      headers: {
+        [SHOPWAVE_UPLOAD.kindHeader]: UPLOAD_KINDS[kind],
+        ...(prefix !== null ? { [SHOPWAVE_UPLOAD.prefixHeader]: prefix } : {}),
+      },
       formData: upstreamForm,
       forwardExtras: false,
     });
