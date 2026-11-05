@@ -1,0 +1,54 @@
+# Publishes react-shopwave-connect to npm when a commit lands on master.
+# Auth is npm trusted publishing (OIDC): no npm token is stored in GitHub.
+# The trusted publisher on npmjs.com must name yasir095/react-shopwave-connect
+# and this file, publish.yml; rename the file and publishing fails with E404.
+name: Publish to npm
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+  id-token: write # required for trusted publishing
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24' # ships npm >= 11.5.1, which trusted publishing needs
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false # no caching in release builds
+
+      # npm never accepts the same version twice, so a push to master without a
+      # version bump (a docs fix, say) ends here instead of failing.
+      - name: Skip if this version is already on npm
+        id: check
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "$NAME@$VERSION is already on npm; nothing to publish."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Publishing $NAME@$VERSION."
+          fi
+
+      - if: steps.check.outputs.skip != 'true'
+        run: npm ci
+
+      # The same gate as a local commit. Integration tests are left out: they
+      # call the live API and would need credentials in CI.
+      - if: steps.check.outputs.skip != 'true'
+        run: npm run typecheck && npm test && npm run build
+
+      - if: steps.check.outputs.skip != 'true'
+        run: npm publish
