@@ -222,11 +222,11 @@ Add a new kind (a new table and factory) only when more endpoints of that shape 
 
 ## 7. Known gaps
 
-Open requests from AdminUI's brief 1 (WA-911):
+Open requests:
 
-- **P2:** `createShopwaveAuth` has no `onError`, so a failed code exchange always prints.
-- **P3:** decide what the default `onError` prints, and what apps plug in.
-- **P4:** a token refresh that throws after a 401 / error 908 is answered 502
+- `createShopwaveAuth` has no `onError`, so a failed code exchange always prints.
+- Decide what the default `onError` prints, and what apps plug in.
+- A token refresh that throws after a 401 / error 908 is answered 502
   `upstream_unavailable` instead of `auth_unavailable`.
 
 ## 8. Versioning and commits
@@ -237,7 +237,7 @@ Open requests from AdminUI's brief 1 (WA-911):
     product tag lists).
 - **Conventional commits** with a scope, a subject that states the behaviour, the JIRA ticket
   first when there is one, and the version when it's a release:
-  `feat(product): WA-922 product and instance tag lists (0.4.3)`.
+  `feat(product): product and instance tag lists (0.4.3)`.
 - Test an unpublished version in an app through a tarball: run `npm pack` here, then
   `npm install ../ShopwaveUtils/CoreNReactSDK/react-shopwave-connect-<version>.tgz` in the app.
   Don't use `npm link` or `file:` to the folder.
