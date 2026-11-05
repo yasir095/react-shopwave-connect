@@ -219,6 +219,31 @@ The shapes below are the ones adminV1 saves and adminV2 reads, so all three admi
   - **`prefix`** (optional) is the image's role, sent as the uploader's `prefix` header: `product`, `product_thumbnail`, `variant`, `variant_thumbnail` (`UPLOAD_PREFIXES`). The uploader then names the file `<prefix>_<hash>.<ext>` (live, 5644, 4 Nov 2026: `product_thumbnail_1bdd….png`), so the role travels with the file; `productImageRole(nameOrUrl)` reads it back (`null` for a name without one). Leave it out for images without a role (merchant logos). An unknown prefix throws before any request; the route answers 400 to one.
 - **Product images:** `images` is a list — **full URLs on read** (`http://static.merchantstack.com/images/merchant/<id>/product/<file>`), **file names on write**. The uploader takes one file per request, so upload each file on its own (`uploadImage(file, { kind: "product", prefix })`) and save the product with all the names. `saveProduct` sends `images` as file names (`toStoredProductImages`), so URLs read back can be passed straight in; leaving `images` out keeps them.
 
+- **Image rules (browser).** Shopwave doesn't resize uploads, so prepare each image before `uploadImage` with `prepareImage(file, rule, { type?, quality? })`. A rule is an exact size or a shape plus limits; the image is scaled down and centre-cropped in one draw (never stretched), and one that already fits is returned untouched.
+
+  ```ts
+  import { prepareImage, ImageTooSmallError, uploadImage } from "react-shopwave-connect";
+
+  const rule = { aspectRatio: "100:77", minWidth: 600, minHeight: 462, maxLongSide: 2000 };
+  try {
+    const ready = await prepareImage(file, rule);          // 6000 × 4000 → 2000 × 1540
+    await uploadImage(ready, { kind: "product", prefix: "product" });
+  } catch (error) {
+    if (error instanceof ImageTooSmallError) showWarning(error.required, error.actual); // e.g. 600 × 462 vs 500 × 385
+    else throw error;
+  }
+  ```
+
+  | Rule field | Meaning |
+  |---|---|
+  | `width` + `height` | Exact output size (the ratio follows); can't be combined with the others |
+  | `aspectRatio` | Shape to crop to: `"100:77"`, `"100/77"`, `[100, 77]` or `1.3` |
+  | `minWidth`, `minHeight` | Smaller crops are refused with `ImageTooSmallError` (`required`, `actual`) |
+  | `maxWidth`, `maxHeight`, `maxLongSide` | Larger crops are scaled down to fit |
+  | `allowUpscale` | Enlarge a too-small image instead of refusing it (default `false`) |
+
+  Output keeps the source type when it's PNG, JPEG or WebP (JPEG/WebP at quality 0.9), else PNG. `planImageFit(size, rule)` gives the crop and output size without touching an image (pure); `checkImageRule(rule)` and `parseAspectRatio(value)` throw `ImageRuleError` for a rule that contradicts itself.
+
 `SHOPWAVE_RESOURCES` (merchant, user) and `SHOPWAVE_UPLOAD` are shared with the server routes, like `SHOPWAVE_ENTITIES`.
 
 ### Available `core` functions
@@ -234,7 +259,7 @@ The shapes below are the ones adminV1 saves and adminV2 reads, so all three admi
 | report    | `fetchReport`                                           |
 | merchant  | `fetchMerchant`, `updateMerchant`, `validateMerchant`; links `merchantLinksToForm`, `merchantLinksFromForm`, `normalizeMerchantLinks`; images `MERCHANT_IMAGE_SLOTS`, `uploadMerchantImage`, `getMerchantImage`, `getMerchantImageUrl`, `setMerchantImage`, `toStoredImageIds`, `imageFileName` |
 | user      | `fetchUser`                                              |
-| upload    | `uploadImage`, `getImageUrl`, `fitImageToSize`, `readImageSize`, `coverCrop`; `UPLOAD_KINDS`, `UPLOAD_PREFIXES`, `isUploadPrefix` |
+| upload    | `uploadImage`, `getImageUrl`, `fitImageToSize`, `readImageSize`, `coverCrop`; `UPLOAD_KINDS`, `UPLOAD_PREFIXES`, `isUploadPrefix`; image rules `prepareImage`, `planImageFit`, `checkImageRule`, `parseAspectRatio`, `ImageTooSmallError`, `ImageRuleError` |
 | session   | `fetchSession`, `loginPath`, `logoutPath`, `logout`     |
 | entity    | `saveEntity`, `saveEntities`, `deleteEntityById`, `fetchEntityById`; low-level `submitEntity` / `deleteEntity` (raw endpoint) |
 | errors    | `ShopwaveApiError`, `getApiErrorMap`, `assertNoApiErrors` |
