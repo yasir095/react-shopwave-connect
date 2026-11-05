@@ -318,7 +318,7 @@ describe("item routes", () => {
     // As the live API returns it (14 Oct 2026): dates as ISO with Z.
     const promotion = (startDate: string, endDate: string) => ({
       id: 8,
-      merchantId: 5644,
+      merchantId: 4321,
       storeIds: [6341],
       categoryIds: { "16320": 2 },
       productIds: {},

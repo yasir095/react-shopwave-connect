@@ -58,7 +58,7 @@ Only these, each with a `{ error, message }` body. Don't add one without adding 
 
 | Status | `error` | When |
 |---|---|---|
-| 400 | `invalid_extras`, `invalid_body`, `invalid_id` | Bad `extras` header, write body or route id |
+| 400 | `invalid_extras`, `invalid_body`, `invalid_id` | Bad `extras` header, write body (incl. an upload's kind or prefix) or route id |
 | 401 | `unauthorized` | No token, or the session expired and the refresh gave none |
 | 404 | `not_found` | A promotion to expire doesn't exist |
 | 405 | `method_not_allowed` | A write to a read-only entity or resource; a delete where `deleteMode` is `"none"` |
@@ -68,8 +68,8 @@ Only these, each with a `{ error, message }` body. Don't add one without adding 
 | 502 | `invalid_upstream` | The promotion read for an expiry wasn't JSON |
 
 An app can pass its own `fetch`. A `Response` it **returns** passes through like any upstream
-answer; anything it **throws** becomes 502 `upstream_unavailable`. Apps rely on this (AdminUI's
-`fetch` returns 504 `upstream_timeout` after 20 seconds), so never rewrite a returned response.
+answer; anything it **throws** becomes 502 `upstream_unavailable`. Apps rely on this (a
+`fetch` that returns 504 `upstream_timeout` after 20 seconds, say), so never rewrite a returned response.
 
 ## 3. Contract tables
 
@@ -99,7 +99,7 @@ and routed.
 | Entity | `SHOPWAVE_ENTITIES` | `collection(kind)`, `item(kind)` | A map by id: `{ products: { "12": {…} } }` | GET, POST/PUT, DELETE |
 | Resource | `SHOPWAVE_RESOURCES` | `resource(kind)` | One object: `{ merchant: {…} }` | GET; PUT/POST when writable |
 | Lookup | `SHOPWAVE_LOOKUPS` | `lookup(kind)` | A list of values: `{ tags: [...] }` | GET |
-| Upload | `SHOPWAVE_UPLOAD`, `UPLOAD_KINDS` | `upload(options)` | `{ fileName, path }` | POST → `PUT /uploader` |
+| Upload | `SHOPWAVE_UPLOAD`, `UPLOAD_KINDS`, `UPLOAD_PREFIXES` | `upload(options)` | `{ fileName, path }` | POST → `PUT /uploader` |
 | Passthrough | none | `passthrough(path)` | Anything | GET |
 | Custom | none | `forward(request, init)` | Anything | Any |
 
@@ -127,6 +127,8 @@ with no parameters, so `extras` aren't forwarded. Their routes are static segmen
 **Upload**: multipart `file` + `kind` to `POST /api/upload`, then `PUT {apiUrl}/uploader` with
 the `contentType` header from `UPLOAD_KINDS`, which maps correct spellings to the API's
 misspelt values (`applicationLogo` → `applicaionLogo`). The defaults are 10 MB and `image/*`.
+An optional `prefix` field (the image's role, `UPLOAD_PREFIXES`) goes upstream as the `prefix`
+header; anything outside the table is 400 `invalid_body`, so a caller can't steer the header.
 
 **Passthrough and `forward`**: `passthrough(path)` proxies one GET path with no table row
 (`report`). `forward` is the building block for a handler none of the factories fit.
@@ -220,11 +222,11 @@ Add a new kind (a new table and factory) only when more endpoints of that shape 
 
 ## 7. Known gaps
 
-Open requests from AdminUI's brief 1 (WA-911):
+Open requests:
 
-- **P2:** `createShopwaveAuth` has no `onError`, so a failed code exchange always prints.
-- **P3:** decide what the default `onError` prints, and what apps plug in.
-- **P4:** a token refresh that throws after a 401 / error 908 is answered 502
+- `createShopwaveAuth` has no `onError`, so a failed code exchange always prints.
+- Decide what the default `onError` prints, and what apps plug in.
+- A token refresh that throws after a 401 / error 908 is answered 502
   `upstream_unavailable` instead of `auth_unavailable`.
 
 ## 8. Versioning and commits
@@ -235,7 +237,12 @@ Open requests from AdminUI's brief 1 (WA-911):
     product tag lists).
 - **Conventional commits** with a scope, a subject that states the behaviour, the JIRA ticket
   first when there is one, and the version when it's a release:
-  `feat(product): WA-922 product and instance tag lists (0.4.3)`.
+  `feat(product): product and instance tag lists (0.4.3)`.
+- **Releases publish from CI.** `.github/workflows/publish.yml` runs on every push to
+  `master`: typecheck, unit tests and build, then `npm publish` through npm trusted
+  publishing (no npm token anywhere). It publishes only when the `package.json` version isn't
+  on npm yet, so a release is: bump the version on `dev`, then merge `dev` into `master`.
+  A push without a bump publishes nothing. Don't publish from a laptop.
 - Test an unpublished version in an app through a tarball: run `npm pack` here, then
   `npm install ../ShopwaveUtils/CoreNReactSDK/react-shopwave-connect-<version>.tgz` in the app.
   Don't use `npm link` or `file:` to the folder.

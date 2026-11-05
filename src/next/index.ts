@@ -36,7 +36,7 @@ export type { SessionStatus } from "../core/session";
 export type { ShopwaveToken } from "../server/token";
 export { ShopwaveAuthError } from "../server/errors";
 export { isExpiredTokenResponse, authorizationHeader } from "../server/token";
-export { readRequestToken, SHOPWAVE_ENTITIES, SHOPWAVE_LOOKUPS, SHOPWAVE_RESOURCES, UPLOAD_KINDS } from "../server";
+export { readRequestToken, SHOPWAVE_ENTITIES, SHOPWAVE_LOOKUPS, SHOPWAVE_RESOURCES, UPLOAD_KINDS, UPLOAD_PREFIXES } from "../server";
 export type {
   ShopwaveApiHandlers,
   CollectionHandlers,
@@ -47,6 +47,7 @@ export type {
   ResourceKind,
   LookupKind,
   UploadKind,
+  UploadPrefix,
   RouteContext,
   RouteHandler,
   ForwardInit,

@@ -4,7 +4,7 @@ import { fitImageToSize, type FitImageOptions } from "./imageFit";
 import { getImageUrl, uploadImage, type UploadedImage } from "./upload";
 
 /**
- * Merchant images, as adminV1 saves them and adminV2 reads them:
+ * Merchant images, as Shopwave's existing admin apps save and read them:
  *
  * ```
  * { logo: { receipt: "<file>", square: "<file>" }, feature: ["<file>"] }
@@ -21,7 +21,7 @@ import { getImageUrl, uploadImage, type UploadedImage } from "./upload";
  *   So a featured image must be uploaded with kind `merchantFeature` (which
  *   stores it under `feature/`); a `merchant` upload lands under `logo/`.
  *
- * Confirmed on the live API, merchant 5644, 30 Sep 2026.
+ * Confirmed on the live API, 30 Sep 2026.
  */
 export interface MerchantImageIds {
   logo?: {
@@ -42,13 +42,13 @@ export interface MerchantImageSlotDefinition {
   field: "logo.receipt" | "logo.square" | "feature[0]";
   /** Uploader `contentType` (the featured image has its own). */
   uploadKind: UploadKind;
-  /** Exact size in pixels. adminV1 refuses any other size; the API doesn't resize. */
+  /** Exact size in pixels. Shopwave's existing admin refuses any other size; the API doesn't resize. */
   width: number;
   height: number;
 }
 
 /**
- * Where each slot lives, its upload kind and its exact size (from adminV1's
+ * Where each slot lives, its upload kind and its exact size (from the existing admin's
  * merchant settings page).
  */
 export const MERCHANT_IMAGE_SLOTS: Readonly<Record<MerchantImageSlot, MerchantImageSlotDefinition>> = Object.freeze({
@@ -141,7 +141,7 @@ function toStored(value: unknown): unknown {
 
 /**
  * The `imageIds` to send on a save: every URL is turned back into its file
- * name (what adminV1 does with images you didn't change) and empty values
+ * name (what the existing admin does with images you didn't change) and empty values
  * are dropped. No images gives `{}`.
  */
 export function toStoredImageIds(imageIds: unknown): MerchantImageIds {

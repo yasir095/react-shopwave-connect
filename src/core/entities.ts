@@ -1,6 +1,7 @@
 import { apiDelete, apiGet, apiRequest, type RequestOptions } from "./request";
 import { ShopwaveApiError, assertNoApiErrors } from "./errors";
 import { toProductInstancesForSave, type Product, type ProductSaveInput } from "./product";
+import { toStoredProductImages } from "./productImages";
 import type { Category } from "./category";
 import type { Store } from "./store";
 import type { Promotion } from "./promotion";
@@ -217,10 +218,15 @@ export async function fetchEntityById<K extends EntityKind>(
  * read) so an edited price is sent as a new instance. As a safeguard, a new
  * product (no `id`, e.g. a duplicate) never sends instance ids: an id copied from
  * another product would otherwise point the save at that product's instances.
+ *
+ * `images` is sent as file names ({@link toStoredProductImages}), so the URLs a
+ * read returns can be passed straight back; leaving `images` out keeps them.
  */
 export const saveProduct = (product: ProductSaveInput, options?: RequestOptions) => {
   const isNew = product.id == null || String(product.id).trim() === "";
-  const toSave = isNew && product.instances != null ? { ...product, instances: toProductInstancesForSave(product.instances) } : product;
+  let toSave: ProductSaveInput = isNew && product.instances != null ? { ...product, instances: toProductInstancesForSave(product.instances) } : product;
+  // Reads return image URLs; writes take the uploader's file names.
+  if (Array.isArray(toSave.images)) toSave = { ...toSave, images: toStoredProductImages(toSave.images) };
   return saveEntity("product", toSave as EntityInput<Product>, options);
 };
 export const deleteProduct = (id: EntityId, options?: RequestOptions) => deleteEntityById("product", id, options);

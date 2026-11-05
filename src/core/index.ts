@@ -26,4 +26,5 @@ export * from "./merchant";
 export * from "./user";
 export * from "./upload";
 export * from "./merchantImages";
+export * from "./productImages";
 export * from "./imageFit";

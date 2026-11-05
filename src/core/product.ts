@@ -78,7 +78,7 @@ export async function fetchProducts(
 // they are stored for historical reference. To change pricing, remove the old
 // instance and create a new one." An instance is therefore only sent with its
 // `id` when it is unchanged; a new or re-priced instance is sent without one, and
-// Shopwave gives it a new id. (adminV2 does the same and warns before saving.)
+// Shopwave gives it a new id. (Shopwave's existing admin does the same and warns before saving.)
 
 /** An instance as a form or caller holds it: `id` is absent for new rows. */
 export type ProductInstanceInput = {

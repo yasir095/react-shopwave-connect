@@ -1,6 +1,6 @@
 # react-shopwave-connect: agent rules
 
-The shared Shopwave API client used by AdminUI and other Shopwave apps. Read
+The shared Shopwave API client used by Shopwave apps. Read
 `docs/ARCHITECTURE.md` before adding or changing an endpoint, and the JSDoc on the contract
 tables before changing a call: it records what the live API does where the API reference is
 wrong.

@@ -45,7 +45,7 @@ export type UploadKind = "merchant" | "merchantFeature" | "product" | "user" | "
 /** `UploadKind` → the API's `contentType` value. */
 export const UPLOAD_KINDS: Readonly<Record<UploadKind, string>> = Object.freeze({
   merchant: "merchant",
-  /** The merchant's featured image (adminV1; not in the API reference). */
+  /** The merchant's featured image (saved by Shopwave's existing admin; not in the API reference). */
   merchantFeature: "merchantFeature",
   product: "product",
   user: "user",
@@ -53,22 +53,52 @@ export const UPLOAD_KINDS: Readonly<Record<UploadKind, string>> = Object.freeze(
   applicationImages: "applicaionImages",
 });
 
+/**
+ * The role an image plays, sent to Shopwave as the uploader's `prefix` header.
+ * The uploader names the file `<prefix>_<hash>.<ext>`, so the role travels with
+ * the file wherever a record stores it (a product's `images`). Live, test
+ * merchant, 4 Nov 2026: all four values answered 201.
+ * - `product`: a product gallery image;
+ * - `product_thumbnail`: the product's lead image, shown in lists;
+ * - `variant` / `variant_thumbnail`: a variant's own image and its lead image
+ *   (used by the Connect integrations).
+ *
+ * Values are the ones Connect's `uploadFileToShopwave` sends.
+ */
+export type UploadPrefix = "product" | "product_thumbnail" | "variant" | "variant_thumbnail";
+
+/** Every `UploadPrefix`, longest first so a name check never takes `product` for `product_thumbnail`. */
+export const UPLOAD_PREFIXES: ReadonlyArray<UploadPrefix> = Object.freeze([
+  "product_thumbnail",
+  "variant_thumbnail",
+  "product",
+  "variant",
+] as const);
+
 /** How uploads are addressed (app route and Shopwave uploader). */
 export const SHOPWAVE_UPLOAD = Object.freeze({
-  /** App route: `POST /api/<route>` (multipart `file` + `kind`). */
+  /** App route: `POST /api/<route>` (multipart `file` + `kind`, optional `prefix`). */
   route: "upload",
   /** Shopwave path: `PUT {apiUrl}/uploader` (multipart `file`). */
   upstream: "uploader",
   /** Header that carries the upload kind upstream. */
   kindHeader: "contentType",
+  /** Header that carries the image role upstream (see `UploadPrefix`). */
+  prefixHeader: "prefix",
   /** Multipart field name for the file, on both sides. */
   fileField: "file",
   /** Multipart field name for the kind in the app request. */
   kindField: "kind",
+  /** Multipart field name for the image role in the app request. */
+  prefixField: "prefix",
 });
 
 export function isUploadKind(value: unknown): value is UploadKind {
   return typeof value === "string" && Object.prototype.hasOwnProperty.call(UPLOAD_KINDS, value);
+}
+
+export function isUploadPrefix(value: unknown): value is UploadPrefix {
+  return typeof value === "string" && (UPLOAD_PREFIXES as ReadonlyArray<string>).includes(value);
 }
 
 /**
@@ -82,7 +112,7 @@ export function isUploadKind(value: unknown): value is UploadKind {
  *   on the merchant's products. No parameters. The API reference says
  *   "internal SKU tags are excluded", but the live API includes system tags
  *   written by imports and syncs (`PID-133`, `VID-137`, `#Hash:…`, `upc-…`;
- *   test merchant 5644, 29 Oct 2026). Apps that offer the list as suggestions
+ *   a test merchant, 29 Oct 2026). Apps that offer the list as suggestions
  *   filter those themselves. Tags of deleted products drop out of the list.
  * - productInstanceTags: `GET /product/instance/tags` → `{ tags: string[] }`,
  *   the same for price instances (channels such as "Eat In", "Takeout").

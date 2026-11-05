@@ -54,19 +54,19 @@ beforeEach(() => {
 
 describe("resource('merchant')", () => {
   it("GET forwards to /merchant with the session token and passes the body through", async () => {
-    replies = [json({ merchant: { id: 5644, name: "M" }, api: {} })];
+    replies = [json({ merchant: { id: 4321, name: "M" }, api: {} })];
     const res = await api().resource("merchant").GET(new Request("https://app.example.com/api/merchant"));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ merchant: { id: 5644, name: "M" }, api: {} });
+    expect(await res.json()).toEqual({ merchant: { id: 4321, name: "M" }, api: {} });
     expect(upstream[0]).toMatchObject({ url: "https://api.example.com/merchant", method: "GET" });
     expect(upstream[0].headers.get("authorization")).toBe("OAuth session");
     expect(upstream[0].headers.get("x-accept-version")).toBe("2.0");
   });
 
   it("PUT sends every field as postBody { merchant } (B4: companyNumber, vatNumber, links kept)", async () => {
-    replies = [json({ merchant: { id: 5644 }, api: {} }, 201)];
+    replies = [json({ merchant: { id: 4321 }, api: {} }, 201)];
     const merchant = {
-      id: 5644,
+      id: 4321,
       name: "M",
       companyNumber: "C1",
       vatNumber: "V1",
@@ -84,8 +84,8 @@ describe("resource('merchant')", () => {
   });
 
   it("accepts a bare object and a string id", async () => {
-    await api().resource("merchant").POST(jsonReq("/api/merchant", "POST", { id: "5644", note: "n" }));
-    expect(postBodyOf(upstream[0])).toEqual({ merchant: { id: 5644, note: "n" } });
+    await api().resource("merchant").POST(jsonReq("/api/merchant", "POST", { id: "4321", note: "n" }));
+    expect(postBodyOf(upstream[0])).toEqual({ merchant: { id: 4321, note: "n" } });
   });
 
   it("answers 400 without an id (the API would create a second merchant)", async () => {
@@ -174,6 +174,30 @@ describe("upload()", () => {
   it("maps application kinds to the API's spelling", async () => {
     await api().upload().POST(uploadReq({ file: png(), kind: "applicationLogo" }));
     expect(upstream[0].headers.get("contentType")).toBe("applicaionLogo");
+  });
+
+  it("sends the image role as the prefix header", async () => {
+    await api().upload().POST(uploadReq({ file: png(), kind: "product", prefix: "product_thumbnail" }));
+    expect(upstream[0].headers.get("contentType")).toBe("product");
+    expect(upstream[0].headers.get("prefix")).toBe("product_thumbnail");
+    expect((upstream[0].body as FormData).get("prefix")).toBeNull(); // only the file goes upstream
+  });
+
+  it("sends no prefix header when the request has none", async () => {
+    await api().upload().POST(uploadReq({ file: png(), kind: "merchant" }));
+    expect(upstream[0].headers.has("prefix")).toBe(false);
+  });
+
+  it("answers 400 for an unknown prefix without calling Shopwave", async () => {
+    const res = await api().upload().POST(uploadReq({ file: png(), kind: "product", prefix: "../logo" }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).message).toMatch(/product_thumbnail, variant_thumbnail, product, variant/);
+    expect(upstream).toHaveLength(0);
+  });
+
+  it("never forwards a prefix from extras", async () => {
+    await api().upload().POST(uploadReq({ file: png(), kind: "product" }, { extras: JSON.stringify({ prefix: "variant" }) }));
+    expect(upstream[0].headers.has("prefix")).toBe(false);
   });
 
   it("never forwards extras (callers can't add upstream headers)", async () => {

@@ -54,7 +54,7 @@ const sentBody = (i: number) => JSON.parse(String(calls[i].init.body));
 
 // Shape of the live `GET /merchant` answer (30 Sep 2026).
 const liveMerchant = {
-  id: 5644,
+  id: 4321,
   name: "Test Product Upload",
   description: null,
   companyNumber: null,
@@ -117,29 +117,29 @@ describe("updateMerchant", () => {
     expect(sentBody(1)).toEqual({
       merchant: { ...scalars, name: "New name", colours: { primary: { main: "#112233" } } },
     });
-    expect(saved).toMatchObject({ id: 5644, name: "New name", companyNumber: "01234567", vatNumber: "GB1" });
+    expect(saved).toMatchObject({ id: 4321, name: "New name", companyNumber: "01234567", vatNumber: "GB1" });
   });
 
   it("sends companyNumber, vatNumber and links when they are patched", async () => {
-    responses = [json({ merchant: liveMerchant, api: ok }), json({ merchant: { id: 5644 }, api: ok }, 201)];
+    responses = [json({ merchant: liveMerchant, api: ok }), json({ merchant: { id: 4321 }, api: ok }, 201)];
     const saved = await updateMerchant(
       { companyNumber: "C1", vatNumber: "V1", links: { website: { home: "https://x.y" }, social: { instagram: "@x" } } },
       options
     );
     expect(sentBody(1).merchant).toMatchObject({
-      id: 5644,
+      id: 4321,
       companyNumber: "C1",
       vatNumber: "V1",
       links: { website: { home: "https://x.y" }, social: { instagram: "@x" } },
     });
     // the echo only had the id: the rest comes from what was sent
-    expect(saved).toMatchObject({ id: 5644, companyNumber: "C1", links: { website: { home: "https://x.y" } } });
+    expect(saved).toMatchObject({ id: 4321, companyNumber: "C1", links: { website: { home: "https://x.y" } } });
   });
 
   it("never sends read-only fields back", async () => {
     responses = [
       json({ merchant: { ...liveMerchant, createdDate: "2020-01-01", modifiedDate: "2026-01-01" }, api: ok }),
-      json({ merchant: { id: 5644 }, api: ok }, 201),
+      json({ merchant: { id: 4321 }, api: ok }, 201),
     ];
     await updateMerchant({ note: "n" }, options);
     expect(sentBody(1).merchant).not.toHaveProperty("createdDate");
@@ -158,10 +158,10 @@ describe("updateMerchant", () => {
   });
 
   it("merge: false sends only the patch and needs the id", async () => {
-    responses = [json({ merchant: { id: 5644, name: "N" }, api: ok }, 201)];
-    await updateMerchant({ id: 5644, name: "N" }, { ...options, merge: false });
+    responses = [json({ merchant: { id: 4321, name: "N" }, api: ok }, 201)];
+    await updateMerchant({ id: 4321, name: "N" }, { ...options, merge: false });
     expect(calls).toHaveLength(1);
-    expect(sentBody(0)).toEqual({ merchant: { id: 5644, name: "N" } });
+    expect(sentBody(0)).toEqual({ merchant: { id: 4321, name: "N" } });
 
     await expect(updateMerchant({ name: "N" }, { ...options, merge: false })).rejects.toThrow(/id is missing/);
   });
@@ -206,7 +206,7 @@ describe("updateMerchant", () => {
 describe("merchant links", () => {
   const nested = { website: { home: "https://a" }, social: { twitter: "@t", instagram: "@i" } };
 
-  it("reads adminV1's nested shape as flat form fields, dropping empty values", () => {
+  it("reads the existing admin's nested shape as flat form fields, dropping empty values", () => {
     expect(merchantLinksToForm(nested)).toEqual({ website: "https://a", twitter: "@t", instagram: "@i" });
     expect(merchantLinksToForm({ website: { home: " " }, social: { facebook: null } })).toEqual({});
   });
@@ -229,7 +229,7 @@ describe("merchant links", () => {
     expect(normalizeMerchantLinks("x")).toEqual({});
   });
 
-  it("colour keys match adminV1 (colours.primary.main / highlight / contrast)", () => {
+  it("colour keys match the existing admin (colours.primary.main / highlight / contrast)", () => {
     expect(MERCHANT_COLOUR_KEYS).toEqual(["main", "highlight", "contrast"]);
   });
 });
@@ -237,13 +237,13 @@ describe("merchant links", () => {
 describe("merchant images", () => {
   const read = {
     logo: {
-      receipt: "http://static.merchantstack.com/images/merchant/5644/logo/aaa.png",
-      square: "http://static.merchantstack.com/images/merchant/5644/logo/bbb.png",
+      receipt: "http://static.merchantstack.com/images/merchant/4321/logo/aaa.png",
+      square: "http://static.merchantstack.com/images/merchant/4321/logo/bbb.png",
     },
-    feature: ["http://static.merchantstack.com/images/merchant/5644/feature/ccc.png"],
+    feature: ["http://static.merchantstack.com/images/merchant/4321/feature/ccc.png"],
   };
 
-  it("slots match adminV1: keys, upload kinds and exact sizes", () => {
+  it("slots match the existing admin: keys, upload kinds and exact sizes", () => {
     expect(MERCHANT_IMAGE_SLOTS).toEqual({
       receipt: { field: "logo.receipt", uploadKind: "merchant", width: 576, height: 325 },
       square: { field: "logo.square", uploadKind: "merchant", width: 1000, height: 1000 },
@@ -258,7 +258,7 @@ describe("merchant images", () => {
     expect(getMerchantImage({}, "square")).toBeNull();
     expect(getMerchantImage(null, "square")).toBeNull();
     expect(getMerchantImageUrl(read, "square")).toBe(
-      "https://s3-eu-west-1.amazonaws.com/static.merchantstack.com/images/merchant/5644/logo/bbb.png"
+      "https://s3-eu-west-1.amazonaws.com/static.merchantstack.com/images/merchant/4321/logo/bbb.png"
     );
     // a bare file name (fresh upload) has no known URL
     expect(getMerchantImageUrl({ logo: { receipt: "new.png" } }, "receipt")).toBe("");
@@ -276,7 +276,7 @@ describe("merchant images", () => {
     expect(setMerchantImage(null, "square", "s.png")).toEqual({ logo: { square: "s.png" } });
   });
 
-  it("toStoredImageIds turns read URLs back into file names (what adminV1 does)", () => {
+  it("toStoredImageIds turns read URLs back into file names (what the existing admin does)", () => {
     expect(toStoredImageIds(read)).toEqual({ logo: { receipt: "aaa.png", square: "bbb.png" }, feature: ["ccc.png"] });
     expect(toStoredImageIds({ logo: { receipt: "x.png?v=2", square: "" }, feature: [null, ""] })).toEqual({
       logo: { receipt: "x.png" },
@@ -297,7 +297,7 @@ describe("merchant images", () => {
     await updateMerchant({ name: "N" }, options);
     const sent = sentBody(1).merchant;
     for (const field of MERCHANT_OBJECT_FIELDS) expect(sent).not.toHaveProperty(field);
-    expect(sent).toMatchObject({ id: 5644, name: "N", companyNumber: null });
+    expect(sent).toMatchObject({ id: 4321, name: "N", companyNumber: null });
   });
 
   it("coverCrop centre-crops to the target aspect ratio", () => {
@@ -308,7 +308,7 @@ describe("merchant images", () => {
   });
 
   it("uploadMerchantImage uses the slot's kind (fit: false in Node, where there's no canvas)", async () => {
-    responses = [json({ fileName: "f.png", path: "http://static.merchantstack.com/images/merchant/5644/feature/f.png" }, 201)];
+    responses = [json({ fileName: "f.png", path: "http://static.merchantstack.com/images/merchant/4321/feature/f.png" }, 201)];
     const image = await uploadMerchantImage(new File(["x"], "a.png", { type: "image/png" }), "featured", { ...options, fit: false });
     expect((calls[0].init.body as FormData).get("kind")).toBe("merchantFeature");
     expect(image.id).toBe("f.png");
@@ -318,7 +318,7 @@ describe("merchant images", () => {
 
 describe("fetchUser", () => {
   it("GETs /api/user and returns body.user", async () => {
-    const user = { id: 1268823, firstName: "Test", lastName: "Account", email: "t@e.st", employee: { merchantId: 5644, roleId: 1, stores: {} } };
+    const user = { id: 2002, firstName: "Test", lastName: "Account", email: "t@e.st", employee: { merchantId: 4321, roleId: 1, stores: {} } };
     responses = [json({ user, api: ok })];
     expect(await fetchUser(options)).toEqual(user);
     expect(calls[0].url).toBe("http://app/api/user");
@@ -379,13 +379,13 @@ describe("uploadImage", () => {
   });
 
   it("live shape: returns an HTTPS url for the http static.merchantstack.com path", async () => {
-    const path = "http://static.merchantstack.com/images/merchant/5644/logo/ea3c.png";
+    const path = "http://static.merchantstack.com/images/merchant/4321/logo/ea3c.png";
     responses = [json({ fileName: "ea3c.png", path, api: ok }, 201)];
     const image = await uploadImage(png(), { kind: "merchant" }, options);
     expect(image).toEqual({
       id: "ea3c.png",
       path,
-      url: "https://s3-eu-west-1.amazonaws.com/static.merchantstack.com/images/merchant/5644/logo/ea3c.png",
+      url: "https://s3-eu-west-1.amazonaws.com/static.merchantstack.com/images/merchant/4321/logo/ea3c.png",
     });
   });
 
