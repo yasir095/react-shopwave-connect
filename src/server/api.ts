@@ -152,7 +152,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  *
  * Accepts:
  *  - the SDK ≥ 0.3 shape `{ <collection>: { "0": {...}, "1": {...} } }` (refs kept),
- *  - the older AdminUI shapes `{ <collection>: { new: {...} } }` / `{ updated: {...} }`,
+ *  - the older app shapes `{ <collection>: { new: {...} } }` / `{ updated: {...} }`,
  *  - a bare entity object `{ title: … }`.
  *
  * With `forcedId` (item routes) exactly one entity is allowed and its `id` is

@@ -9,8 +9,8 @@ import {
 
 // As GET /product returns them: keyed by instance id.
 const original = {
-  "533512": { id: 533512, price: "422.0", taxPercentage: "0.000", timestamp: "2023-01-16T13:46:56.000Z", name: "", tags: "Take Away", activeDate: "2022-08-18T11:59:00.000Z" },
-  "533513": { id: 533513, price: "400.0", taxPercentage: "0.200", timestamp: "2023-01-16T13:46:56.000Z", name: "Eat in", tags: "Eat In", activeDate: "2022-08-18T11:59:00.000Z" },
+  "9001": { id: 9001, price: "422.0", taxPercentage: "0.000", timestamp: "2024-01-01T00:00:00.000Z", name: "", tags: "Take Away", activeDate: "2024-01-01T00:00:00.000Z" },
+  "9002": { id: 9002, price: "400.0", taxPercentage: "0.200", timestamp: "2024-01-01T00:00:00.000Z", name: "Eat in", tags: "Eat In", activeDate: "2024-01-01T00:00:00.000Z" },
 };
 
 describe("isSameInstancePrice", () => {
@@ -32,17 +32,17 @@ describe("toProductInstancesForSave", () => {
     const form = Object.values(original).map((i) => ({ ...i }));
     const out = toProductInstancesForSave(form, original);
     expect(Object.keys(out)).toEqual(["0", "1"]);
-    expect(out["0"].id).toBe(533512);
-    expect(out["1"].id).toBe(533513);
+    expect(out["0"].id).toBe(9001);
+    expect(out["1"].id).toBe(9002);
     // server field removed, everything else kept
     expect(out["0"]).not.toHaveProperty("timestamp");
-    expect(out["0"]).toMatchObject({ price: "422.0", tags: "Take Away", activeDate: "2022-08-18T11:59:00.000Z" });
+    expect(out["0"]).toMatchObject({ price: "422.0", tags: "Take Away", activeDate: "2024-01-01T00:00:00.000Z" });
   });
 
   it("drops the id of an instance whose price or tax changed (Shopwave creates a new one)", () => {
     const form = [
-      { ...original["533512"], price: "450" },
-      { ...original["533513"], taxPercentage: "0.050" },
+      { ...original["9001"], price: "450" },
+      { ...original["9002"], taxPercentage: "0.050" },
     ];
     const out = toProductInstancesForSave(form, original);
     expect(out["0"]).not.toHaveProperty("id");
@@ -51,8 +51,8 @@ describe("toProductInstancesForSave", () => {
   });
 
   it("keeps the id when only non-price fields changed", () => {
-    const out = toProductInstancesForSave([{ ...original["533512"], name: "Takeaway", tags: "TA" }], original);
-    expect(out["0"].id).toBe(533512);
+    const out = toProductInstancesForSave([{ ...original["9001"], name: "Takeaway", tags: "TA" }], original);
+    expect(out["0"].id).toBe(9001);
     expect(out["0"].name).toBe("Takeaway");
   });
 
@@ -68,17 +68,17 @@ describe("toProductInstancesForSave", () => {
   });
 
   it("sends new rows without an id and omits removed instances", () => {
-    const form = [{ ...original["533513"] }, { id: undefined, price: "300", taxPercentage: "0" }];
+    const form = [{ ...original["9002"] }, { id: undefined, price: "300", taxPercentage: "0" }];
     const out = toProductInstancesForSave(form, original);
     expect(Object.keys(out)).toEqual(["0", "1"]);
-    expect(out["0"].id).toBe(533513);
+    expect(out["0"].id).toBe(9002);
     expect(out["1"]).not.toHaveProperty("id");
-    expect(JSON.stringify(out)).not.toContain("533512");
+    expect(JSON.stringify(out)).not.toContain("9001");
   });
 
   it("accepts string ids and an empty list", () => {
-    const out = toProductInstancesForSave([{ ...original["533512"], id: "533512" }], original);
-    expect(out["0"].id).toBe("533512");
+    const out = toProductInstancesForSave([{ ...original["9001"], id: "9001" }], original);
+    expect(out["0"].id).toBe("9001");
     expect(toProductInstancesForSave([], original)).toEqual({});
     expect(toProductInstancesForSave(null, original)).toEqual({});
   });
@@ -87,14 +87,14 @@ describe("toProductInstancesForSave", () => {
 describe("findRepricedInstances", () => {
   it("lists instances whose price or tax changed, with before/after", () => {
     const form = [
-      { ...original["533512"] },
-      { ...original["533513"], price: "425.5" },
+      { ...original["9001"] },
+      { ...original["9002"], price: "425.5" },
       { price: "100", taxPercentage: "0" }, // new row: not a re-price
     ];
     expect(findRepricedInstances(form, original)).toEqual([
       {
         index: 1,
-        id: 533513,
+        id: 9002,
         name: "Eat in",
         before: { price: "400.0", taxPercentage: "0.200" },
         after: { price: "425.5", taxPercentage: "0.200" },
@@ -129,7 +129,7 @@ describe("saveProduct", () => {
     const body = sent();
     expect(body).not.toHaveProperty("id");
     expect(Object.keys(body.instances)).toEqual(["0", "1"]);
-    expect(JSON.stringify(body.instances)).not.toMatch(/53351[23]/);
+    expect(JSON.stringify(body.instances)).not.toMatch(/900[12]/);
     expect(body.instances["0"].price).toBe("422.0");
   });
 

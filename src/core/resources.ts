@@ -45,7 +45,7 @@ export type UploadKind = "merchant" | "merchantFeature" | "product" | "user" | "
 /** `UploadKind` → the API's `contentType` value. */
 export const UPLOAD_KINDS: Readonly<Record<UploadKind, string>> = Object.freeze({
   merchant: "merchant",
-  /** The merchant's featured image (adminV1; not in the API reference). */
+  /** The merchant's featured image (saved by Shopwave's existing admin; not in the API reference). */
   merchantFeature: "merchantFeature",
   product: "product",
   user: "user",
@@ -56,8 +56,8 @@ export const UPLOAD_KINDS: Readonly<Record<UploadKind, string>> = Object.freeze(
 /**
  * The role an image plays, sent to Shopwave as the uploader's `prefix` header.
  * The uploader names the file `<prefix>_<hash>.<ext>`, so the role travels with
- * the file wherever a record stores it (a product's `images`). Live, merchant
- * 5644, 4 Nov 2026: all four values answered 201.
+ * the file wherever a record stores it (a product's `images`). Live, test
+ * merchant, 4 Nov 2026: all four values answered 201.
  * - `product`: a product gallery image;
  * - `product_thumbnail`: the product's lead image, shown in lists;
  * - `variant` / `variant_thumbnail`: a variant's own image and its lead image
@@ -112,7 +112,7 @@ export function isUploadPrefix(value: unknown): value is UploadPrefix {
  *   on the merchant's products. No parameters. The API reference says
  *   "internal SKU tags are excluded", but the live API includes system tags
  *   written by imports and syncs (`PID-133`, `VID-137`, `#Hash:…`, `upc-…`;
- *   test merchant 5644, 29 Oct 2026). Apps that offer the list as suggestions
+ *   a test merchant, 29 Oct 2026). Apps that offer the list as suggestions
  *   filter those themselves. Tags of deleted products drop out of the list.
  * - productInstanceTags: `GET /product/instance/tags` → `{ tags: string[] }`,
  *   the same for price instances (channels such as "Eat In", "Takeout").

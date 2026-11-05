@@ -28,11 +28,11 @@ beforeEach(() => {
 });
 
 const png = () => new File([new Uint8Array([137, 80, 78, 71])], "shoe.png", { type: "image/png" });
-// As the live API returned them (merchant 5644, 4 Nov 2026).
-const BASE = "http://static.merchantstack.com/images/merchant/5644/product";
-const THUMB = "product_thumbnail_1bdd0a6092c5a4f9a79277de1ebf554dec41090b.png";
-const GALLERY = "product_1a939506b80c97b2e1c0e2c57fef1e61b62b7d83.png";
-const PLAIN = "cdb1129d40658cff26fea6e3d974a0cd0fea5839.png";
+// Shaped as the live API returns them (4 Nov 2026).
+const BASE = "http://static.merchantstack.com/images/merchant/4321/product";
+const THUMB = "product_thumbnail_a1b2c3d4e5f60718293a4b5c6d7e8f9012345678.png";
+const GALLERY = "product_b2c3d4e5f60718293a4b5c6d7e8f901234567890.png";
+const PLAIN = "c3d4e5f60718293a4b5c6d7e8f9012345678901a.png";
 
 describe("upload prefixes", () => {
   it("lists the roles longest first", () => {
@@ -50,7 +50,7 @@ describe("upload prefixes", () => {
     expect(form.get("kind")).toBe("product");
     expect(form.get("prefix")).toBe("product_thumbnail");
     expect(image.id).toBe(THUMB);
-    expect(image.url).toBe(`https://s3-eu-west-1.amazonaws.com/static.merchantstack.com/images/merchant/5644/product/${THUMB}`);
+    expect(image.url).toBe(`https://s3-eu-west-1.amazonaws.com/static.merchantstack.com/images/merchant/4321/product/${THUMB}`);
   });
 
   it("uploadImage sends no prefix field without one, and rejects an unknown one", async () => {

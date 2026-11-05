@@ -68,8 +68,8 @@ Only these, each with a `{ error, message }` body. Don't add one without adding 
 | 502 | `invalid_upstream` | The promotion read for an expiry wasn't JSON |
 
 An app can pass its own `fetch`. A `Response` it **returns** passes through like any upstream
-answer; anything it **throws** becomes 502 `upstream_unavailable`. Apps rely on this (AdminUI's
-`fetch` returns 504 `upstream_timeout` after 20 seconds), so never rewrite a returned response.
+answer; anything it **throws** becomes 502 `upstream_unavailable`. Apps rely on this (a
+`fetch` that returns 504 `upstream_timeout` after 20 seconds, say), so never rewrite a returned response.
 
 ## 3. Contract tables
 

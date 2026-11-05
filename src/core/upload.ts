@@ -36,7 +36,7 @@ const STATIC_HOST = /^https?:\/\/static\.merchantstack\.com\/images\//i;
 /**
  * Turns an image path from the API into a URL a page can load over HTTPS:
  * `http://static.merchantstack.com/images/x.png` → `<base>/x.png`, and a
- * relative path (`merchant/5644/logo/x.png`) → `<base>/merchant/5644/logo/x.png`.
+ * relative path (`merchant/123/logo/x.png`) → `<base>/merchant/123/logo/x.png`.
  * Other absolute URLs are returned unchanged; empty input gives `""`.
  */
 export function getImageUrl(path: string | null | undefined, base: string = SHOPWAVE_IMAGE_BASE_URL): string {

@@ -191,18 +191,18 @@ await updateMerchant({ imageIds: setMerchantImage(merchant?.imageIds, "square", 
 getMerchantImageUrl(saved.imageIds, "square");                     // HTTPS URL for <img src>
 ```
 
-The shapes below are the ones adminV1 saves and adminV2 reads, so all three admins share one record (confirmed on the live API with merchant 5644, 30 Sep 2026):
+The shapes below are the ones Shopwave's existing admin apps save and read, so every client shares one record (confirmed on the live API, 30 Sep 2026):
 
 | Field | Shape |
 |---|---|
 | `imageIds` | `{ logo: { receipt, square }, feature: [ … ] }` — **file names** on write (the uploader's `fileName`), **full `http://static.merchantstack.com/…` URLs** on read |
-| `colours` | `{ primary: { main, highlight, contrast } }` (hex strings; adminV2 uses `primary.main` behind the logo) |
+| `colours` | `{ primary: { main, highlight, contrast } }` (hex strings; `primary.main` is the colour shown behind the logo) |
 | `links` | `{ website: { home }, social: { twitter, facebook, instagram } }` |
 
 - **Merchant fields** (`GET`/`POST /merchant`): `id`, `name`, `description`, `companyNumber`, `vatNumber`, `categoryId`, `estAnnualRevenue`, `note`, and the three objects above. The API returns `{}` for an empty object.
 - **What the live API does on `POST /merchant`** (checked 30 Sep 2026): it replaces the record. A scalar field left out (`companyNumber`, `vatNumber`, `note`, …) becomes `null`; an object field left out (`colours`, `links`, `imageIds`) is kept, and one that is sent replaces the stored one (`{}` clears it). It answers **205 with an empty body**. It silently cuts `companyNumber` to 11 characters and `vatNumber` to 9 (a UK VAT number without `GB`).
 - **`updateMerchant(patch, { merge })`**: `merge` (default `true`) reads first and merges the scalar fields, so nothing is wiped. Object fields (`MERCHANT_OBJECT_FIELDS`) are sent only when the patch has them, and then replace the stored one — to change one image, pass the whole `imageIds` (`setMerchantImage` does that). `imageIds` is always sent as file names (`toStoredImageIds`), so you can pass back what you read. It refuses a different merchant `id`, never sends `createdDate`/`modifiedDate`, rejects values longer than `MERCHANT_FIELD_MAX_LENGTH` (`validateMerchant(m)` lists them) instead of letting the API cut them, and returns the merchant **read back after the save**, so you see exactly what was kept. `merge: false` sends only the patch (which must include `id`, and clears the scalar fields you leave out).
-- **Merchant image slots** (`MERCHANT_IMAGE_SLOTS`): the API doesn't resize, and adminV1 accepts only these exact sizes.
+- **Merchant image slots** (`MERCHANT_IMAGE_SLOTS`): the API doesn't resize, and Shopwave's existing admin accepts only these exact sizes.
 
   | Slot | Stored at | Upload kind | Size |
   |---|---|---|---|
@@ -210,13 +210,13 @@ The shapes below are the ones adminV1 saves and adminV2 reads, so all three admi
   | `square` | `imageIds.logo.square` | `merchant` | 1000 × 1000 |
   | `featured` | `imageIds.feature[0]` | `merchantFeature` | 1200 × 600 |
 
-  The API builds each image URL from its key, not from where the file was uploaded (`logo.*` → `…/merchant/<id>/logo/<file>`, `feature` → `…/feature/<file>`), so the featured image must be uploaded as `merchantFeature`. `POST /merchant` stores all three objects with the SDK's `{ merchant: … }` body; adminV1's `{ merchants: { "0": … } }` form isn't needed.
+  The API builds each image URL from its key, not from where the file was uploaded (`logo.*` → `…/merchant/<id>/logo/<file>`, `feature` → `…/feature/<file>`), so the featured image must be uploaded as `merchantFeature`. `POST /merchant` stores all three objects with the SDK's `{ merchant: … }` body; the existing admin's `{ merchants: { "0": … } }` form isn't needed.
 
   `uploadMerchantImage(file, slot, { fit = true })` scales and centre-crops the image to the slot's size in the browser (`fitImageToSize`, `coverCrop`) and uploads it with the slot's kind; `fit: false` sends the file as-is. `getMerchantImage` / `getMerchantImageUrl` / `setMerchantImage` read and write a slot; `imageFileName(url)` gives the file name in a URL. Hook: `useUploadMerchantImage()`.
 - **Links:** `merchantLinksToForm(links)` gives flat fields (`website`, `twitter`, `facebook`, `instagram`) from the stored shape, flat keys or the old array form; `merchantLinksFromForm(fields)` builds the stored shape; `normalizeMerchantLinks(links)` converts any of them to the stored shape. Colour keys: `MERCHANT_COLOUR_KEYS`.
-- **User** (`GET /user`): the live API returns `id`, `firstName`, `lastName`, `email` and `employee: { merchantId, roleId, stores }` — no `createdDate` and **no `merchant`**, although the reference lists them. There's no option to include it (adminV1 also reads `GET /merchant` separately and attaches it to its session). Read the merchant with `fetchMerchant()`.
+- **User** (`GET /user`): the live API returns `id`, `firstName`, `lastName`, `email` and `employee: { merchantId, roleId, stores }` — no `createdDate` and **no `merchant`**, although the reference lists them. There's no option to include it (Shopwave's existing admin also reads `GET /merchant` separately and attaches it to its session). Read the merchant with `fetchMerchant()`.
 - **`uploadImage(file, { kind, prefix?, fileName? })`** posts the file to `/api/upload`, which `PUT`s it to Shopwave's `/uploader` (multipart `file`, header `contentType: <kind>`). Kinds: `merchant`, `merchantFeature`, `product`, `user`, `applicationLogo`, `applicationImages` (the last two sent as the API's own spelling, `applicaionLogo`/`applicaionImages`). Live: 201 `{ fileName, path }`. Returns `{ id, url, path }`: `id` is the generated file name (what records store), `path` the URL as the API gave it (`http://static.merchantstack.com/images/…`, which has no HTTPS endpoint), and `url` the same file over HTTPS via `getImageUrl(path)` (`SHOPWAVE_IMAGE_BASE_URL`, the S3 bucket behind the CDN). The upload alone changes no record.
-  - **`prefix`** (optional) is the image's role, sent as the uploader's `prefix` header: `product`, `product_thumbnail`, `variant`, `variant_thumbnail` (`UPLOAD_PREFIXES`). The uploader then names the file `<prefix>_<hash>.<ext>` (live, 5644, 4 Nov 2026: `product_thumbnail_1bdd….png`), so the role travels with the file; `productImageRole(nameOrUrl)` reads it back (`null` for a name without one). Leave it out for images without a role (merchant logos). An unknown prefix throws before any request; the route answers 400 to one.
+  - **`prefix`** (optional) is the image's role, sent as the uploader's `prefix` header: `product`, `product_thumbnail`, `variant`, `variant_thumbnail` (`UPLOAD_PREFIXES`). The uploader then names the file `<prefix>_<hash>.<ext>` (live, 4 Nov 2026: `product_thumbnail_<hash>.png`), so the role travels with the file; `productImageRole(nameOrUrl)` reads it back (`null` for a name without one). Leave it out for images without a role (merchant logos). An unknown prefix throws before any request; the route answers 400 to one.
 - **Product images:** `images` is a list — **full URLs on read** (`http://static.merchantstack.com/images/merchant/<id>/product/<file>`), **file names on write**. The uploader takes one file per request, so upload each file on its own (`uploadImage(file, { kind: "product", prefix })`) and save the product with all the names. `saveProduct` sends `images` as file names (`toStoredProductImages`), so URLs read back can be passed straight in; leaving `images` out keeps them.
 
 - **Image rules (browser).** Shopwave doesn't resize uploads, so prepare each image before `uploadImage` with `prepareImage(file, rule, { type?, quality? })`. A rule is an exact size or a shape plus limits; the image is scaled down and centre-cropped in one draw (never stretched), and one that already fits is returned untouched.
@@ -530,7 +530,7 @@ Options: `apiVersion` (default `"2.0"`), `fetch`, `entities` (override a route/h
 
 ### Moving an existing app over
 
-- Keep `redirectUri` equal to the URL already registered on the auth server (AdminUI: `…/auth`) and mount `handlers.auth` at that path.
+- Keep `redirectUri` equal to the URL already registered on the auth server and mount `handlers.auth` at that path.
 - Keep `cookieName` the same and use the same `SESSION_SECRET` value as the old iron-session password — current users stay logged in; their old token shape is read and upgraded on the next refresh.
 - Per-tool auth routes can go: link to `auth.loginPath("/tools/where-to-next")` instead.
 - `core.logout()` / `useLogout()` still work (`DELETE /api/session`), but prefer linking to `logoutPath()` so the auth-server session ends too.
@@ -561,7 +561,7 @@ Unit tests (offline, no credentials) cover the OAuth client, token handling, the
 npm test            # = npm run test:unit
 ```
 
-Integration tests use [Vitest](https://vitest.dev) and run against **an app that mounts the SDK routes** (e.g. AdminUI on `npm run dev`), which forwards to the Shopwave API. They cover create → read (by id and by filter) → update → delete with the typed functions for Products and Categories, create → read → role update → retire for Employees, read-only checks for Consumers, plus unknown ids and the legacy `submitEntity` body. They create and delete real records on the account behind the token.
+Integration tests use [Vitest](https://vitest.dev) and run against **an app that mounts the SDK routes** (for example your app on `npm run dev`), which forwards to the Shopwave API. They cover create → read (by id and by filter) → update → delete with the typed functions for Products and Categories, create → read → role update → retire for Employees, read-only checks for Consumers, plus unknown ids and the legacy `submitEntity` body. They create and delete real records on the account behind the token.
 
 ### Environment Variables
 
@@ -574,7 +574,7 @@ Integration tests use [Vitest](https://vitest.dev) and run against **an app that
 
 ```bash
 # Set environment variables
-# with the app running (AdminUI: npm run dev)
+# with the app running (npm run dev)
 export API_URL=http://localhost:3000
 export API_TOKEN=<bare access token>
 

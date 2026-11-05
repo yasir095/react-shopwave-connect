@@ -15,7 +15,7 @@ export interface MerchantColourSet {
 }
 
 /**
- * Brand colours, as adminV1 saves them and adminV2 reads them
+ * Brand colours, as Shopwave's existing admin apps save and read them
  * (`colours.primary.main` is the logo background): `{ primary: { main,
  * highlight, contrast } }`. `{}` when unset. Confirmed live, 30 Sep 2026.
  */
@@ -29,7 +29,7 @@ export const MERCHANT_COLOUR_KEYS = ["main", "highlight", "contrast"] as const;
 export type MerchantColourKey = (typeof MERCHANT_COLOUR_KEYS)[number];
 
 /**
- * Web and social links, as adminV1 saves them:
+ * Web and social links, as Shopwave's existing admin saves them:
  * `{ website: { home }, social: { twitter, facebook, instagram } }`.
  * `{}` when empty (confirmed live, 30 Sep 2026). Use {@link normalizeMerchantLinks} to read older shapes and
  * {@link merchantLinksToForm} / {@link merchantLinksFromForm} for flat forms.
@@ -64,9 +64,9 @@ function trimmed(value: unknown): string | undefined {
 /**
  * Reads `merchant.links` as flat fields (`{ website, twitter, facebook,
  * instagram }`), whatever shape it was saved in:
- * - the nested shape adminV1 saves (`{ website: { home }, social: { … } }`);
+ * - the nested shape the existing admin saves (`{ website: { home }, social: { … } }`);
  * - flat keys (`{ website: "…" }`, what SDK 0.4.0 pre-releases sent);
- * - an array in {@link MERCHANT_LINK_KEYS} order (older AdminUI versions).
+ * - an array in {@link MERCHANT_LINK_KEYS} order (older app versions).
  * Empty values are dropped.
  */
 export function merchantLinksToForm(links: unknown): Partial<Record<MerchantLinkKey, string>> {
@@ -108,7 +108,7 @@ export function merchantLinksFromForm(form: Partial<Record<MerchantLinkKey, stri
   return out as MerchantLinks;
 }
 
-/** Reads any stored or older `links` value into the nested shape adminV1 saves. */
+/** Reads any stored or older `links` value into the nested shape the existing admin saves. */
 export function normalizeMerchantLinks(links: unknown): MerchantLinks {
   return merchantLinksFromForm(merchantLinksToForm(links));
 }

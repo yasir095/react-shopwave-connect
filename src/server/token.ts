@@ -60,7 +60,7 @@ export function tokenFromResponse(
 
 /**
  * Reads a token from session storage. Accepts both the current shape and the
- * legacy raw response that older apps (e.g. AdminUI ≤ 0.1) stored directly in
+ * legacy raw response that older apps stored directly in
  * the session, so existing sessions survive an upgrade.
  */
 export function normalizeStoredToken(raw: unknown): ShopwaveToken | null {

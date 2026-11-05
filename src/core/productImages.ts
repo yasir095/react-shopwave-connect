@@ -2,7 +2,7 @@ import { UPLOAD_PREFIXES, type UploadPrefix } from "./resources";
 import { imageFileName } from "./merchantImages";
 
 /**
- * Product images, as the live API stores them (merchant 5644, 4 Nov 2026):
+ * Product images, as the live API stores them (4 Nov 2026):
  * - A product's `images` is a list. **Reads return full URLs**
  *   (`http://static.merchantstack.com/images/merchant/<id>/product/<file>`);
  *   **writes take the uploader's file names** ({@link toStoredProductImages};

@@ -54,19 +54,19 @@ beforeEach(() => {
 
 describe("resource('merchant')", () => {
   it("GET forwards to /merchant with the session token and passes the body through", async () => {
-    replies = [json({ merchant: { id: 5644, name: "M" }, api: {} })];
+    replies = [json({ merchant: { id: 4321, name: "M" }, api: {} })];
     const res = await api().resource("merchant").GET(new Request("https://app.example.com/api/merchant"));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ merchant: { id: 5644, name: "M" }, api: {} });
+    expect(await res.json()).toEqual({ merchant: { id: 4321, name: "M" }, api: {} });
     expect(upstream[0]).toMatchObject({ url: "https://api.example.com/merchant", method: "GET" });
     expect(upstream[0].headers.get("authorization")).toBe("OAuth session");
     expect(upstream[0].headers.get("x-accept-version")).toBe("2.0");
   });
 
   it("PUT sends every field as postBody { merchant } (B4: companyNumber, vatNumber, links kept)", async () => {
-    replies = [json({ merchant: { id: 5644 }, api: {} }, 201)];
+    replies = [json({ merchant: { id: 4321 }, api: {} }, 201)];
     const merchant = {
-      id: 5644,
+      id: 4321,
       name: "M",
       companyNumber: "C1",
       vatNumber: "V1",
@@ -84,8 +84,8 @@ describe("resource('merchant')", () => {
   });
 
   it("accepts a bare object and a string id", async () => {
-    await api().resource("merchant").POST(jsonReq("/api/merchant", "POST", { id: "5644", note: "n" }));
-    expect(postBodyOf(upstream[0])).toEqual({ merchant: { id: 5644, note: "n" } });
+    await api().resource("merchant").POST(jsonReq("/api/merchant", "POST", { id: "4321", note: "n" }));
+    expect(postBodyOf(upstream[0])).toEqual({ merchant: { id: 4321, note: "n" } });
   });
 
   it("answers 400 without an id (the API would create a second merchant)", async () => {
