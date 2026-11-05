@@ -238,6 +238,11 @@ Open requests:
 - **Conventional commits** with a scope, a subject that states the behaviour, the JIRA ticket
   first when there is one, and the version when it's a release:
   `feat(product): product and instance tag lists (0.4.3)`.
+- **Releases publish from CI.** `.github/workflows/publish.yml` runs on every push to
+  `master`: typecheck, unit tests and build, then `npm publish` through npm trusted
+  publishing (no npm token anywhere). It publishes only when the `package.json` version isn't
+  on npm yet, so a release is: bump the version on `dev`, then merge `dev` into `master`.
+  A push without a bump publishes nothing. Don't publish from a laptop.
 - Test an unpublished version in an app through a tarball: run `npm pack` here, then
   `npm install ../ShopwaveUtils/CoreNReactSDK/react-shopwave-connect-<version>.tgz` in the app.
   Don't use `npm link` or `file:` to the folder.
