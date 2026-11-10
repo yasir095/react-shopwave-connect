@@ -1,4 +1,5 @@
-import { apiGet, getApiErrors, type RequestOptions } from "./request";
+import { apiGet, withToken, type RequestOptions } from "./request";
+import { assertNoApiErrors } from "./errors";
 import type { apiResponse } from "./types";
 
 /** Promotion rule identifiers as stored by the Shopwave API. */
@@ -38,7 +39,13 @@ export interface FetchPromotionsParams {
   promotionIds?: Array<number>;
   /** Whether to include soft-deleted records. Defaults to `false`. */
   deleted?: boolean;
-  /** Token override (also accepted via `options.token`). */
+  /** Filter for imminent promotions. */
+  imminent?: boolean;
+  /** Filter for active promotions. */
+  active?: boolean;
+  /** Filter for expired promotions. */
+  expired?: boolean;
+  /** @deprecated Pass `options.token` instead. Sent the same way (Authorization header). */
   token?: string;
 }
 
@@ -54,16 +61,20 @@ export async function fetchPromotions(
   if (params.promotionIds) {
     extras.promotionIds = params.promotionIds;
   }
-  if (params.token) {
-    extras.token = params.token;
+  if (params.imminent !== undefined) {
+    extras.imminent = params.imminent;
+  }
+  if (params.active !== undefined) {
+    extras.active = params.active;
+  }
+  if (params.expired !== undefined) {
+    extras.expired = params.expired;
   }
 
-  const json = await apiGet<PromotionResponse>("/api/promotions", extras, options);
+  const json = await apiGet<PromotionResponse | null>("/api/promotions", extras, withToken(options, params.token));
 
-  const error = getApiErrors(json.api);
-  if (error) {
-    throw new Error(error);
-  }
+  assertNoApiErrors(json, 200);
 
-  return Object.values(json.promotions ?? {});
+  // Shopwave answers an empty body when nothing matches.
+  return Object.values(json?.promotions ?? {});
 }

@@ -1,138 +1,93 @@
 import { describe, it, expect, afterAll } from 'vitest';
-import { submitEntity, deleteEntity } from '../../src/core/entity';
-import { fetchProducts, type Product } from '../../src/core/product';
+import { saveProduct, deleteProduct, fetchProduct, fetchProducts } from '../../src/core';
 import { requestOptions, uniqueId, uniqueBarcode } from './setup';
 
 describe.sequential('Products API Integration', () => {
-  // Shared variable to store the created product ID across tests
   let createdProductId: number | null = null;
-
-  // Test data with unique identifiers to prevent collisions
   const testProductName = uniqueId('Test_Product');
   const testBarcode = uniqueBarcode();
 
   afterAll(async () => {
-    // Cleanup: delete the created product even if tests fail
     if (createdProductId !== null) {
       try {
-        await deleteEntity('products', createdProductId, requestOptions);
+        await deleteProduct(createdProductId, requestOptions);
       } catch (error) {
         console.warn(`Cleanup: Failed to delete product ${createdProductId}`, error);
       }
     }
   });
 
-  it('should create a new product (POST)', async () => {
-    const payload = {
-      barcode: testBarcode,
-      name: testProductName,
-      details: 'Integration test product',
-      tags: 'test,integration',
-      unit: 1,
-      categories: [],
-      instances: {},
-    };
-
-    const result = await submitEntity<Product>(
+  it('creates a product and returns it with its id (saveProduct)', async () => {
+    const saved = await saveProduct(
       {
-        endpoint: '/api/products',
-        method: 'POST',
-        payload,
+        barcode: testBarcode,
+        name: testProductName,
+        details: 'Integration test product',
+        tags: 'test,integration',
+        unit: 1,
+        categories: [],
+        instances: {},
       },
       requestOptions
     );
 
-    expect(result).toBeDefined();
-    expect(result?.id).toBeTypeOf('number');
-    expect(result?.name).toBe(testProductName);
-    expect(result?.barcode).toBe(testBarcode);
-
-    // Store the ID for subsequent tests
-    createdProductId = result!.id;
+    expect(saved.id).toBeTypeOf('number');
+    expect(saved.name).toBe(testProductName);
+    expect(saved.barcode).toBe(testBarcode);
+    createdProductId = saved.id;
   });
 
-  it('should read the created product (GET)', async () => {
+  it('reads it back by id and by filter', async () => {
     expect(createdProductId).not.toBeNull();
 
-    const products = await fetchProducts(
-      { productIds: [createdProductId!] },
-      requestOptions
-    );
+    const one = await fetchProduct(createdProductId!, {}, requestOptions);
+    expect(one?.id).toBe(createdProductId);
+    expect(one?.name).toBe(testProductName);
+    expect(one?.barcode).toBe(testBarcode);
 
-    expect(products).toHaveLength(1);
-    expect(products[0].id).toBe(createdProductId);
-    expect(products[0].name).toBe(testProductName);
-    expect(products[0].barcode).toBe(testBarcode);
+    const list = await fetchProducts({ productIds: [createdProductId!] }, requestOptions);
+    expect(list).toHaveLength(1);
   });
 
-  it('should update the product (PUT)', async () => {
+  it('updates it and returns the saved values', async () => {
     expect(createdProductId).not.toBeNull();
-
     const updatedName = uniqueId('Updated_Product');
-    const payload = {
-      id: createdProductId,
-      barcode: testBarcode,
-      name: updatedName,
-      details: 'Updated integration test product',
-      tags: 'test,integration,updated',
-      unit: 2,
-    };
 
-    const result = await submitEntity<Product>(
+    const saved = await saveProduct(
       {
-        endpoint: `/api/products/${createdProductId}`,
-        method: 'PUT',
-        payload,
+        id: createdProductId!,
+        barcode: testBarcode,
+        name: updatedName,
+        details: 'Updated integration test product',
+        tags: 'test,integration,updated',
+        unit: 2,
       },
       requestOptions
     );
+    expect(saved.id).toBe(createdProductId);
+    expect(saved.name).toBe(updatedName);
+    expect(saved.unit).toBe(2);
 
-    expect(result).toBeDefined();
-    expect(result?.name).toBe(updatedName);
-    expect(result?.unit).toBe(2);
-
-    // Re-fetch to verify the change persisted
-    const products = await fetchProducts(
-      { productIds: [createdProductId!] },
-      requestOptions
-    );
-
-    expect(products).toHaveLength(1);
-    expect(products[0].name).toBe(updatedName);
-    expect(products[0].unit).toBe(2);
+    const reread = await fetchProduct(createdProductId!, {}, requestOptions);
+    expect(reread?.name).toBe(updatedName);
+    expect(reread?.unit).toBe(2);
   });
 
-  it('should delete the product (DELETE)', async () => {
+  it('deletes it (205, soft delete)', async () => {
     expect(createdProductId).not.toBeNull();
+    const deletedId = createdProductId!;
 
-    // Delete should complete without throwing
-    await expect(
-      deleteEntity('products', createdProductId!, requestOptions)
-    ).resolves.toBeUndefined();
-
-    // Mark as cleaned up so afterAll doesn't try to delete again
-    const deletedId = createdProductId;
+    await expect(deleteProduct(deletedId, requestOptions)).resolves.toBeUndefined();
     createdProductId = null;
 
-    // Verify soft-delete: fetch with deleted=true to confirm deleteDate is set
-    const products = await fetchProducts(
-      { productIds: [deletedId!], deleted: true },
-      requestOptions
-    );
-
+    const products = await fetchProducts({ productIds: [deletedId], deleted: true }, requestOptions);
     expect(products).toHaveLength(1);
-    expect(products[0].id).toBe(deletedId);
-    // deleteDate should be set (non-empty string) after deletion
     expect(products[0].deleteDate).toBeTruthy();
   });
 
-  it('should not return deleted product when deleted=false', async () => {
-    // Fetch without deleted flag (defaults to false) should not return soft-deleted products
-    const products = await fetchProducts(
-      { productIds: [999999999] },
-      requestOptions
-    );
-
+  it('does not return unknown ids', async () => {
+    const products = await fetchProducts({ productIds: [999999999] }, requestOptions);
     expect(products).toHaveLength(0);
+    await expect(fetchProduct(999999999, {}, requestOptions)).resolves.toBeNull();
   });
 });
