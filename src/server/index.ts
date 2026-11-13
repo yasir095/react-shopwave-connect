@@ -31,6 +31,7 @@ export {
   createShopwaveApiHandlers,
   readRequestToken,
   parseExtras,
+  readChildIds,
   normalizeWriteBody,
   RequestBodyError,
   BLOCKED_EXTRAS,

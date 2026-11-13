@@ -166,10 +166,13 @@ export async function apiSend<T>(
 /**
  * DELETE helper. Shopwave answers deletes with 205 and an empty body; if a body
  * does come back and carries API errors, they are thrown. Returns the parsed
- * body (`null` when empty).
+ * body (`null` when empty). `extras`, when given, travel in the `extras` header
+ * (the server forwards only keys its delete route allows).
  */
-export async function apiDelete(path: string, options: RequestOptions = {}): Promise<unknown> {
-  const { status, body } = await send(path, { method: "DELETE", headers: baseHeaders(options) }, options);
+export async function apiDelete(path: string, options: RequestOptions = {}, extras?: Extras): Promise<unknown> {
+  const headers: Record<string, string> = baseHeaders(options);
+  if (extras) headers.extras = JSON.stringify(buildExtras(extras));
+  const { status, body } = await send(path, { method: "DELETE", headers }, options);
   if (getApiErrorMap(body)) throw toShopwaveApiError(status, body);
   return body;
 }

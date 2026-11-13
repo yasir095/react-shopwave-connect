@@ -14,6 +14,7 @@ export * from "./consumer";
 export * from "./employee";
 export * from "./product";
 export * from "./productTags";
+export * from "./productComponent";
 export * from "./promotion";
 export * from "./store";
 export * from "./report";

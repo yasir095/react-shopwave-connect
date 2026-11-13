@@ -7,6 +7,7 @@ import type { Store } from "./store";
 import type { Promotion } from "./promotion";
 import type { Employee } from "./employee";
 import type { Consumer } from "./consumer";
+import type { ProductComponent } from "./productComponent";
 
 /**
  * How each Shopwave entity is addressed, shared by the client functions below
@@ -49,9 +50,16 @@ export interface EntityDefinition {
    * start = end and the record is expired without ever running.
    */
   retireStartField?: string;
+  /**
+   * Header naming child records to delete instead of the whole record
+   * (`productComponentInstanceIds: 1,2`). Only `item()` DELETE uses it, and only when
+   * the caller's `extras` carry this one key (a non-empty list of ids); every other
+   * `extras` key is still dropped. Only for `deleteMode: "delete"`.
+   */
+  childIdsHeader?: string;
 }
 
-export type EntityKind = "product" | "category" | "store" | "promotion" | "employee" | "consumer";
+export type EntityKind = "product" | "category" | "store" | "promotion" | "employee" | "consumer" | "productComponent";
 
 /** Entities that can be created/updated through the API. */
 export type WritableEntityKind = Exclude<EntityKind, "consumer">;
@@ -71,6 +79,27 @@ export type DeletableEntityKind = Exclude<EntityKind, "consumer">;
  * - employee: POST updates `roleId`, `joinedDate`, `exitDate` (names can't be
  *   changed); no DELETE (live API: "Cannot DELETE /employee") → retired via `exitDate`.
  * - consumer: read-only (`GET` with `ids`, comma-separated); live POST → 404.
+ * - productComponent: modifier groups, `/product/component` (live, staging, 11 Nov 2026). The
+ *   API reference lists no read filters; these are what the live API does:
+ *   - Reads filter by `componentIds` (group ids) or `productIds` (the parent product; option
+ *     products don't match). `productComponentIds` is ignored on reads: every group comes back.
+ *     `deleted: false` gives live groups only, `true` deleted groups only, no header both.
+ *     No match → 204 with an empty body. No order, sort, priority or position field anywhere.
+ *   - Groups are keyed by id; `products` (option products) by product id; `productInstances`
+ *     (option rows) by row id. Reads reformat values: price `"100"` → `"100.0"`,
+ *     vatPercentage `"0.2000"` → `"0.200"`. `tags` and `name` are stored as sent (no trimming;
+ *     a `tags` array is joined with commas; `tags` null or left out → null).
+ *   - POST upserts (201, echoed under the ref). For each option product in `products`, its rows
+ *     are replaced: every row sent is created afresh with a new id (a row `id` is ignored, also
+ *     on a price change) and rows left out are removed. Option products left out of the save
+ *     are untouched, and an empty `productInstances` removes nothing. A save without `products`
+ *     updates only the group's own fields. The echo isn't proof of what was stored: renames of
+ *     groups created moments earlier by a test run echoed the new name but never stuck (re-read
+ *     for 90 s), while older groups, and groups created in Shopwave's own admin, renamed at
+ *     once. Cause not yet known.
+ *   - DELETE with `productComponentIds` (plural, comma list) → 205, soft delete. Adding
+ *     `productComponentInstanceIds` deletes just those rows (205); they stay in live reads with
+ *     `deleteDate` set. The singular `productComponentId` hangs (504 after 60 s).
  */
 export const SHOPWAVE_ENTITIES: Readonly<Record<EntityKind, EntityDefinition>> = Object.freeze({
   product: { route: "products", collection: "products", upstream: "product", idsHeader: "productIds", idHeader: "productId", writable: true, deleteMode: "delete" },
@@ -79,6 +108,16 @@ export const SHOPWAVE_ENTITIES: Readonly<Record<EntityKind, EntityDefinition>> =
   promotion: { route: "promotions", collection: "promotions", upstream: "promotion", idsHeader: "promotionIds", idHeader: "promotionId", writable: true, deleteMode: "retire", retireField: "endDate", retireWithRecord: true, retireStartField: "startDate" },
   employee: { route: "employees", collection: "employees", upstream: "employee", idsHeader: "employeeIds", idHeader: "employeeId", writable: true, deleteMode: "retire", retireField: "exitDate" },
   consumer: { route: "consumer", collection: "consumers", upstream: "consumer", idsHeader: "ids", idHeader: "consumerId", writable: false, deleteMode: "none" },
+  productComponent: {
+    route: "product-components",
+    collection: "productComponents",
+    upstream: "product/component",
+    idsHeader: "componentIds",
+    idHeader: "productComponentIds",
+    writable: true,
+    deleteMode: "delete",
+    childIdsHeader: "productComponentInstanceIds",
+  },
 });
 
 export interface EntityTypes {
@@ -88,6 +127,7 @@ export interface EntityTypes {
   promotion: Promotion;
   employee: Employee;
   consumer: Consumer;
+  productComponent: ProductComponent;
 }
 
 /**

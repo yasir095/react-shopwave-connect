@@ -206,7 +206,7 @@ describe("entity table", () => {
     expect(SHOPWAVE_ENTITIES.employee).toMatchObject({ deleteMode: "retire", retireField: "exitDate" });
     expect(SHOPWAVE_ENTITIES.promotion).toMatchObject({ deleteMode: "retire", retireField: "endDate" });
     expect(Object.keys(SHOPWAVE_ENTITIES).sort()).toEqual(
-      ["category", "consumer", "employee", "product", "promotion", "store"]
+      ["category", "consumer", "employee", "product", "productComponent", "promotion", "store"]
     );
   });
 });

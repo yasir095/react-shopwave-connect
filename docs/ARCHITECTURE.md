@@ -58,7 +58,7 @@ Only these, each with a `{ error, message }` body. Don't add one without adding 
 
 | Status | `error` | When |
 |---|---|---|
-| 400 | `invalid_extras`, `invalid_body`, `invalid_id` | Bad `extras` header, write body (incl. an upload's kind or prefix) or route id |
+| 400 | `invalid_extras`, `invalid_body`, `invalid_id` | Bad `extras` header (incl. an unusable child-id list on a delete), write body (incl. an upload's kind or prefix) or route id |
 | 401 | `unauthorized` | No token, or the session expired and the refresh gave none |
 | 404 | `not_found` | A promotion to expire doesn't exist |
 | 405 | `method_not_allowed` | A write to a read-only entity or resource; a delete where `deleteMode` is `"none"` |
@@ -103,12 +103,17 @@ and routed.
 | Passthrough | none | `passthrough(path)` | Anything | GET |
 | Custom | none | `forward(request, init)` | Anything | Any |
 
-**Entity** (`entities.ts`): `product`, `category`, `store`, `promotion`, `employee`, `consumer`.
+**Entity** (`entities.ts`): `product`, `category`, `store`, `promotion`, `employee`, `consumer`, `productComponent`.
 
 - Rows carry `route`, `collection`, `upstream`, `idsHeader` (filters reads), `idHeader`
   (names the record to delete), `writable` and `deleteMode`.
 - Writes are upserts, `{ <collection>: { "0": item } }`: with an `id` they update, without one
   they create. Shopwave echoes each item under the ref it was sent with.
+- `childIdsHeader` (optional, `deleteMode: "delete"` only) names child records a delete can
+  target instead of the whole record (`productComponent`: `productComponentInstanceIds`, its
+  option rows). `item()` DELETE forwards that one key from `extras`, checked as a non-empty
+  list of ids (400 `invalid_extras` otherwise, never a fall-back to deleting the record);
+  every other `extras` key is still dropped.
 - `deleteMode`: `"delete"` sends `DELETE` (205). `"retire"` is for entities the API can't
   delete: it sets `retireField` to now (`employee.exitDate`, `promotion.endDate`). With
   `retireWithRecord`, the whole record is read and saved back, because the API rejects a

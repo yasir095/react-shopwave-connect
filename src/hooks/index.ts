@@ -13,6 +13,7 @@ export { useConsumer } from "./useConsumer";
 export { useEmployee } from "./useEmployee";
 export { useProduct } from "./useProduct";
 export { useProductTags, useProductInstanceTags } from "./useProductTags";
+export { useProductComponent } from "./useProductComponent";
 export { usePromotion } from "./usePromotion";
 export { useStore } from "./useStore";
 export { useReport } from "./useReport";

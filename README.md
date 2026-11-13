@@ -254,6 +254,7 @@ The shapes below are the ones Shopwave's existing admin apps save and read, so e
 | consumer  | `fetchConsumers`, `fetchConsumer` (read-only)            |
 | employee  | `fetchEmployees`, `fetchEmployee`, `saveEmployee`, `deleteEmployee` |
 | product   | `fetchProducts`, `fetchProductsMap` (batched, keyed), `fetchProduct`, `saveProduct`, `deleteProduct`; prices `toProductInstancesForSave`, `findRepricedInstances`, `isSameInstancePrice`; images `productImageRole`, `toStoredProductImages`; tag lists `fetchProductTags`, `fetchProductInstanceTags` (`string[]`), `normalizeTagList` |
+| product component | `fetchProductComponents` (`productIds`, `productComponentIds`, `deleted`), `fetchProductComponent`, `saveProductComponent` (body built by `toProductComponentForSave`), `deleteProductComponent`, `deleteProductComponentInstances` (option rows) |
 | promotion | `fetchPromotions`, `fetchPromotion`, `savePromotion`, `deletePromotion` |
 | store     | `fetchStores` (now with `storeIds`), `fetchStore`, `saveStore`, `deleteStore` |
 | report    | `fetchReport`                                           |
@@ -308,7 +309,7 @@ const { data } = useProduct({ storeId }, { baseUrl: "https://api.merchantstack.c
 
 ### Auto-fetch hooks (`useEffect`-based)
 
-`useCategory`, `useConsumer`, `useEmployee`, `useProduct`, `useProductTags`, `useProductInstanceTags`, `usePromotion`, `useStore`, `useReport`, `useSession`, `useMerchant`, `useUser` (`useUser({ enabled: false })` stays idle; so do the tag hooks, so a tag field can load its list the first time it opens).
+`useCategory`, `useConsumer`, `useEmployee`, `useProduct`, `useProductComponent`, `useProductTags`, `useProductInstanceTags`, `usePromotion`, `useStore`, `useReport`, `useSession`, `useMerchant`, `useUser` (`useUser({ enabled: false })` stays idle; so do the tag hooks, so a tag field can load its list the first time it opens).
 They fetch on mount and re-run when their arguments change. `useConsumer` and `useReport` stay idle until you pass ids / a query (they return `loading: false`, `data: null` until then). `refetch()` replaces the old `reloadFlag` argument.
 
 ### Manually-triggered hooks (`useCallback`-based)
@@ -499,6 +500,11 @@ export const { POST } = shopwave.upload();              // or upload({ maxBytes,
 export const { GET } = shopwave.lookup("productTags");
 // app/api/products/instance-tags/route.ts  — price-instance (channel) tags (fetchProductInstanceTags)
 export const { GET } = shopwave.lookup("productInstanceTags");
+
+// app/api/product-components/route.ts       — modifier groups: list/filter, create/update
+export const { GET, POST, PUT } = shopwave.collection("productComponent");
+// app/api/product-components/[id]/route.ts  — read one, update, delete the group or some option rows
+export const { GET, PUT, DELETE } = shopwave.item("productComponent");
 ```
 
 - `lookup(kind)`: the read-only lists in `SHOPWAVE_LOOKUPS`. `productTags` → `GET /product/tags`, `productInstanceTags` → `GET /product/instance/tags`; both answer `{ tags: string[] }`. They take no parameters, so `extras` aren't forwarded. The app routes are `products/tags` and `products/instance-tags`: static segments, so they sit beside `products/[id]`.
@@ -506,7 +512,7 @@ export const { GET } = shopwave.lookup("productInstanceTags");
 - `resource("merchant")`: `PUT`/`POST` take `{ merchant: {…} }` or the bare object and send every field on as `postBody`. The `id` is required (400 without it), because a POST without one would create a second merchant. `resource("user")` answers 405 to writes.
 - `upload()`: takes multipart `file` + `kind` and an optional `prefix`, checks the size (default 10 MB → 413), type (default `image/*` → 415) and prefix (one of `UPLOAD_PREFIXES`, else 400), and `PUT`s only the file to `/uploader` with the `contentType` header, plus the `prefix` header when one was given. `extras` are ignored on uploads. Shopwave's reply (201 `{ fileName, path }`) is passed through.
 
-Entities: `product`, `category`, `store`, `promotion`, `employee` (DELETE retires via `exitDate`), `promotion` (DELETE expires it: the whole record saved back with `endDate`, and a not-yet-started `startDate`, set to now), `consumer` (mounted at `/api/consumer`; GET only, writes answer 405). For anything else, `shopwave.forward(request, { method, path, headers, postBody })` does the same token/refresh/encoding work for a custom handler.
+Entities: `product`, `category`, `store`, `promotion`, `productComponent` (modifier groups, mounted at `/api/product-components`; DELETE with `extras` `{ productComponentInstanceIds }` deletes just those option rows, and a non-empty list of ids is required, else 400), `employee` (DELETE retires via `exitDate`), `promotion` (DELETE expires it: the whole record saved back with `endDate`, and a not-yet-started `startDate`, set to now), `consumer` (mounted at `/api/consumer`; GET only, writes answer 405). For anything else, `shopwave.forward(request, { method, path, headers, postBody })` does the same token/refresh/encoding work for a custom handler.
 
 Every handler:
 
@@ -561,7 +567,7 @@ Unit tests (offline, no credentials) cover the OAuth client, token handling, the
 npm test            # = npm run test:unit
 ```
 
-Integration tests use [Vitest](https://vitest.dev) and run against **an app that mounts the SDK routes** (for example your app on `npm run dev`), which forwards to the Shopwave API. They cover create → read (by id and by filter) → update → delete with the typed functions for Products and Categories, create → read → role update → retire for Employees, read-only checks for Consumers, plus unknown ids and the legacy `submitEntity` body. They create and delete real records on the account behind the token.
+Integration tests use [Vitest](https://vitest.dev) and run against **an app that mounts the SDK routes** (for example your app on `npm run dev`), which forwards to the Shopwave API. They cover create → read (by id and by filter) → update → delete with the typed functions for Products and Categories, create → read → role update → retire for Employees, read-only checks for Consumers, a create → read → update → delete-rows → delete lifecycle for Product components, plus unknown ids and the legacy `submitEntity` body. They create and delete real records on the account behind the token.
 
 ### Environment Variables
 
@@ -596,6 +602,7 @@ tests/
     request.test.ts                # token header, ShopwaveApiError, no logging
     entities.test.ts               # save/delete/fetch-by-id per entity
     api-routes.test.ts             # /api route handlers
+    product-components.test.ts     # product component functions and handlers
     query-state.test.ts            # useQuery keeps data while refetching
   integration/
     setup.ts                       # Shared config and helpers
@@ -603,6 +610,7 @@ tests/
     categories.integration.test.ts # Categories CRUD lifecycle
     consumers.integration.test.ts  # Consumers CRUD lifecycle
     employees.integration.test.ts  # Employees CRUD lifecycle
+    product-components.integration.test.ts  # Product components: create, read, update, delete rows, delete
 ```
 
 Each test file uses `describe.sequential` to guarantee execution order (create → read → update → delete) with shared state across tests. An `afterAll` cleanup ensures created resources are deleted even if a test fails midway.

@@ -265,7 +265,10 @@ export interface ItemHandlers {
   GET: RouteHandler;
   /** Update the record at `[id]` (the id in the URL wins). */
   PUT: RouteHandler;
-  /** Delete the record at `[id]`. Shopwave answers 205 with an empty body. */
+  /**
+   * Delete the record at `[id]`. Shopwave answers 205 with an empty body. For an entity with
+   * `childIdsHeader`, `extras` carrying that key deletes just those child rows instead.
+   */
   DELETE: RouteHandler;
 }
 
@@ -364,6 +367,30 @@ async function readUpstream(response: Response): Promise<{ text: string; json: u
   } catch {
     return { text, json: null };
   }
+}
+
+/**
+ * The child ids a DELETE names in `extras` under `header` (case-insensitive), as one comma
+ * list: `undefined` when the key is absent, `null` when `extras` or the value is invalid (not a
+ * JSON object, or not a non-empty list of ids). The key may hold an array or a comma string.
+ */
+export function readChildIds(raw: string | null, header: string): string | undefined | null {
+  if (!raw) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!isPlainObject(parsed)) return null;
+  const key = Object.keys(parsed).find((k) => k.toLowerCase() === header.toLowerCase());
+  if (key === undefined) return undefined;
+  const value = parsed[key];
+  const list = Array.isArray(value) ? value : typeof value === "string" || typeof value === "number" ? String(value).split(",") : null;
+  if (!list) return null;
+  const ids = list.map((v) => (typeof v === "string" || typeof v === "number" ? String(v).trim() : ""));
+  if (ids.length === 0 || ids.some((id) => !ID_PATTERN.test(id))) return null;
+  return ids.join(",");
 }
 
 async function routeParam(context: RouteContext | undefined, name: string): Promise<string | null> {
@@ -635,6 +662,22 @@ export function createShopwaveApiHandlers(config: ShopwaveApiConfig): ShopwaveAp
           const id = await routeParam(context, param);
           if (!id) return badId();
           if (def.deleteMode === "none") return notSupported(def, "deletes");
+          if (def.deleteMode === "delete" && def.childIdsHeader) {
+            // Child rows only (product component option rows). Never fall back to deleting the
+            // whole record when the list is there but unusable.
+            const childIds = readChildIds(request.headers.get("extras"), def.childIdsHeader);
+            if (childIds === null) {
+              return jsonError(400, "invalid_extras", `"${def.childIdsHeader}" must be a non-empty list of ids`);
+            }
+            if (childIds !== undefined) {
+              return forward(request, {
+                method: "DELETE",
+                path: def.upstream,
+                headers: { [def.idHeader]: id, [def.childIdsHeader]: childIds },
+                forwardExtras: false,
+              });
+            }
+          }
           if (def.deleteMode === "retire") {
             // No DELETE upstream (employees, promotions): set the end date to now.
             const field = def.retireField ?? "exitDate";
